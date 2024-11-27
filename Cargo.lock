@@ -6,6 +6,7 @@ version = 3
 name = "FlyPath_AP_Project"
 version = "0.1.0"
 dependencies = [
+ "initializer",
  "wg_2024",
 ]
 
@@ -25,14 +26,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22ec99545bb0ed0ea7bb9b8e1e9122ea386ff8a48c0922e43f36d45ab09e0e80"
 
 [[package]]
+name = "equivalent"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+
+[[package]]
+name = "hashbrown"
+version = "0.15.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+
+[[package]]
+name = "indexmap"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707907fe3c25f5424cce2cb7e1cbcafee6bdbe735ca90ef77c29e84591e5b9da"
+dependencies = [
+ "equivalent",
+ "hashbrown",
+]
+
+[[package]]
 name = "initializer"
 version = "0.1.0"
+dependencies = [
+ "toml",
+ "wg_2024",
+]
+
+[[package]]
+name = "memchr"
+version = "2.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.91"
+version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "307e3004becf10f5a6e0d59d20f3cd28231b0e0827a96cd3e0ce6d14bc1e4bb3"
+checksum = "37d3544b3f2748c54e147655edb5025752e2303145b5aefb3c3ea2c78b973bb0"
 dependencies = [
  "unicode-ident",
 ]
@@ -67,6 +100,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87607cb1398ed59d48732e575a4c28a7a8ebf2454b964fe3f224f2afc07909e1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -78,6 +120,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1ed1f98e3fdc28d6d910e6737ae6ab1a93bf1985935a1193e68f93eeb68d24e"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dd7358ecb8fc2f8d014bf86f6f638ce72ba252a2c3a2572f2a795f1d23efb41"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae48d6208a266e853d946088ed816055e556cc6028c5e8e2b84d9fa5dd7c7f5"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "winnow",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,7 +162,7 @@ checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
 [[package]]
 name = "wg_2024"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "wg_internal",
 ]
@@ -94,7 +170,7 @@ dependencies = [
 [[package]]
 name = "wg_config"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "serde",
  "wg_network",
@@ -103,7 +179,7 @@ dependencies = [
 [[package]]
 name = "wg_controller"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "crossbeam-channel",
  "wg_network",
@@ -113,7 +189,7 @@ dependencies = [
 [[package]]
 name = "wg_drone"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "crossbeam-channel",
  "wg_controller",
@@ -124,7 +200,7 @@ dependencies = [
 [[package]]
 name = "wg_internal"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "wg_config",
  "wg_controller",
@@ -136,12 +212,21 @@ dependencies = [
 [[package]]
 name = "wg_network"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 
 [[package]]
 name = "wg_packet"
 version = "0.1.0"
-source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#06bfd8daa95b4a818fd5d5e36e87f316c9223b73"
+source = "git+https://github.com/WGL-2024/WGL_repo_2024.git#821013635a82d4f07613ec70b20fba16aa6cb797"
 dependencies = [
  "wg_network",
+]
+
+[[package]]
+name = "winnow"
+version = "0.6.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36c1fec1a2bb5866f07c25f68c26e565c4c200aebb96d7e55710c19d3e8ac49b"
+dependencies = [
+ "memchr",
 ]

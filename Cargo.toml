@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
+initializer = { path = "crates/initializer"}
 
 [workspace]
 members = ["crates/initializer"]
