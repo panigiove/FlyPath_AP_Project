@@ -100,7 +100,7 @@ checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 [[package]]
 name = "bagel_bomber"
 version = "0.1.0"
-source = "git+https://github.com/daw-dev/bagel-bomber.git#e2075058eacd3fe2846e90e9d11369f4f5b214f5"
+source = "git+https://github.com/daw-dev/bagel-bomber.git#3b94966e28621a5a25d761689fe90c012559a8db"
 dependencies = [
  "crossbeam-channel",
  "lazy_static",
