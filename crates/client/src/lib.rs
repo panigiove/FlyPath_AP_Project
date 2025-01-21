@@ -4,14 +4,15 @@
 
 use std::collections::HashMap;
 
-pub struct Client{
+mod test;
+
+pub struct Client {
     adj_list: HashMap<u8, Vec<u8>>,
 }
 
-
 impl Client {
     pub fn new() -> Self {
-        Self{
+        Self {
             adj_list: HashMap::new(),
         }
     }
