@@ -1,12 +1,11 @@
-use wg_2024::network::NodeId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use wg_2024::network::NodeId;
 
 #[derive(Debug, Clone)]
 pub struct Message<M: DroneSend> {
     pub source_id: NodeId,
     pub session_id: u64,
-    pub content_type: ContentType,
     pub content: M,
 }
 
@@ -19,74 +18,46 @@ pub trait DroneSend: Serialize + DeserializeOwned {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ContentType {
-    IdentificationRequest, // ask for server type, content can be empty
-    IdentificationResponse, // server type response
-    Request,
-    Response,
-    Status, // send to client errors or ok
-} 
+pub trait Request: DroneSend {}
+pub trait Response: DroneSend {}
 
+// -------------------- Messages --------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ServerType{
-    MediaServer,
-    CommunicationServer,
+pub enum MediaRequest {
+    MediaList,
+    Media(u64),
 }
-impl DroneSend for ServerType {}
-
-// ------------------ Media Messages ---------------------
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaReq{
-    List,
-    Get(u8),
-}
-impl DroneSend for MediaReq{}
+impl DroneSend for MediaRequest {}
+impl Request for MediaRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaRes{
-    List(Vec<u8>),
-    Wrapper(Vec<u8>), // media in bytes
-}
-impl DroneSend for MediaRes{}
-
-// ------------------ Chat Messages ---------------------
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ChatReq{
+pub enum ChatRequest {
+    ClientList,
     Register(NodeId),
-    List,
-    SendMessage{
-        from:NodeId,
+    SendMessage {
+        from: NodeId,
         to: NodeId,
         message: String,
-    }
-}
-impl DroneSend for ChatReq{}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ChatRes{
-    List(Vec<NodeId>),
-    ReciveMessage{
-        from:NodeId,
-        message: Vec<u8>,
     },
 }
-impl DroneSend for ChatRes{}
-
-// ------------------ Status Messages -------------------
-pub trait Status {}
+impl DroneSend for ChatRequest {}
+impl Request for ChatRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Errors{
-    WrongMessageType(ServerType),
+pub enum MediaResponse {
+    MediaList(Vec<u64>),
+    Media(Vec<u8>), // should we use some other type?
 }
-impl DroneSend for Errors{}
-impl Status for Errors{}
 
+impl DroneSend for MediaResponse {}
+impl Response for MediaResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Ok{
-    MessageSend(u64), // send the session
+pub enum ChatResponse {
+    ClientList(Vec<NodeId>),
+    MessageFrom { from: NodeId, message: Vec<u8> },
+    MessageSent,
 }
-impl DroneSend for Ok{}
-impl Status for Ok{}
+
+impl DroneSend for ChatResponse {}
+impl Response for ChatResponse {}
