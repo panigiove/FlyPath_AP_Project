@@ -1,0 +1,18 @@
+[package]
+name = "controller"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
+crossbeam-channel = "0.5.13"
+rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
+bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git" }
+rustbusters-drone = { git = "https://github.com/Rustbusters/drone.git", features = ["sounds"] }
+rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
+lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
+rolling_drone = { git = "https://github.com/giorebecchi/RollingDrone.git"}
+LeDron_James = { git = "https://github.com/anass03/LeDron_James.git" }
+Rust-In-Peace = {git = "https://github.com/Rust-In-Peace-AP/sound-effects.git" }
+rust-roveri = { git = "ssh://git@github.com/RustRoveri/rust-roveri.git" }
+rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
