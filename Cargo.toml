@@ -11,5 +11,6 @@ initializer = { path = "crates/initializer"}
 [workspace]
 members = [ 
     "crates/initializer",
-    "crates/client"
+    "crates/client",
+    "crates/message",
 ]

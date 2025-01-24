@@ -1,21 +1,26 @@
+use std::collections::HashMap;
+
 use wg_2024::network::NodeId;
 
 #[allow(unused)]
+#[derive(Debug, Clone)]
 pub enum ServerType {
     ChatServer,
     MediaServer,
 }
 
 #[allow(unused)]
+#[derive(Debug, Clone)]
 pub enum FromUiCommunication {
-    AskServerType(NodeId),
+    AskServerType(u64, NodeId),
 
-    AskMedialist(NodeId),
-    AskMedia(NodeId, u64),
+    AskMedialist(u64, NodeId),
+    AskMedia(u64, NodeId, u64),
 
-    AskClientList(NodeId),
-    AskRegister(NodeId),
+    AskClientList(u64, NodeId),
+    AskRegister(u64, NodeId),
     SendMessage {
+        session_id: u64,
         server_id: NodeId,
         to: NodeId,
         message: String,
@@ -26,18 +31,36 @@ pub enum FromUiCommunication {
 }
 
 #[allow(unused)]
+#[derive(Debug, Clone)]
 pub enum ToUIComunication {
-    ResponseServerType(ServerType),
+    ResponseServerType(u64, ServerType),
 
-    ResponseMediaList(NodeId, Vec<u64>),
-    ResponseMedia(Vec<u8>),
+    ResponseMediaList(u64, Vec<u64>),
+    ResponseMedia(u64, Vec<u8>),
 
-    ResponseClientList(Vec<NodeId>),
-    MessageFrom { from: NodeId, message: Vec<u8> },
+    ResponseClientList(u64, Vec<NodeId>),
+    MessageFrom {
+        session_id: u64,
+        from: NodeId,
+        message: Vec<u8>,
+    },
 
-    ConfirmMessageSent, // server  confirm delivery of message
+    ConfirmMessageSent(u64), // server  confirm delivery of message
 
-    ServerList(Option<Vec<NodeId>>),
+    ServerList(Option<Vec<NodeId>>, Option<HashMap<NodeId, ServerType>>),
 
-    Error(String), // generic error
+    Err(MessageError),
+    ServerReachable(NodeId),
+
+    ServerReceivedAllSegment(u64),
+}
+
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub enum MessageError {
+    DirectConnectionDoNotWork(u64, NodeId),
+    ServerUnreachable(u64, NodeId),
+    TooManyErrors(u64),
+    NoFragmentStatus(u64),
+    InvalidMessageReceived(u64),
 }
