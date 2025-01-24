@@ -1,11 +1,30 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use wg_2024::network::NodeId;
-use wg_2024::packet::Fragment;
+use wg_2024::packet::{Fragment, Packet};
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::Sender;
 
 pub const FRAGMENT_DSIZE: usize = 128;
 
+// ------------------------------ CONTROLLER EVENTS
+pub enum NodeCommand {
+    RemoveSender(NodeId),
+    AddSender(NodeId, Sender<Packet>),
+    FromShortcut(Packet),
+}
+pub enum NodeEvent{
+    PacketSent(Packet),
+    ControllerShortcut(Packet),
+    MessageSent(SentMessageStatus), // send message
+    MessageRecv(RecvMessageStatus), // received full message 
+    FragmentRecv(RecvMessageStatus), // received first fragment of message
+    MessageDropped(SentMessageStatus), // too many tries for this message
+    MessageTooOld(RecvMessageStatus), // sender of message hasn't send the other fragments in the time limit
+}
+
+
+// ------------------------------ HIGH MESSAGE ERRORS
 #[derive(Debug, Clone)]
 pub enum MessageError {
     DirectConnectionDoNotWork(u64, NodeId),
@@ -15,6 +34,7 @@ pub enum MessageError {
     InvalidMessageReceived(u64),
 }
 
+// ------------------------------ HIGH MESSAGE
 // use this to store message and message State 
 #[derive(Debug, Clone)]
 pub struct SentMessageStatus {
