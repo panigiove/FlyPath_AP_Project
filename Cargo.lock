@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "ChatServer"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "message",
+ "serde",
+ "serde_json",
+ "wg_2024",
+]
+
+[[package]]
 name = "FlyPath_AP_Project"
 version = "0.1.0"
 dependencies = [
@@ -21,6 +32,10 @@ dependencies = [
  "serde_json",
  "wg_2024",
 ]
+
+[[package]]
+name = "MediaServer"
+version = "0.1.0"
 
 [[package]]
 name = "aho-corasick"
