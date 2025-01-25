@@ -15,8 +15,8 @@ pub enum NodeCommand {
 }
 pub enum NodeEvent{
     PacketSent(Packet),
-    CreateMessage(SentMessageStatus), // try send message (every times is sended a stream of fragment)
-    MessageRecv(RecvMessageStatus), // received full message 
+    CreateMessage(SentMessageWrapper), // try send message (every times is sended a stream of fragment)
+    MessageRecv(RecvMessageWrapper), // received full message 
 }
 
 
@@ -25,47 +25,34 @@ pub enum NodeEvent{
 pub enum MessageError {
     DirectConnectionDoNotWork(u64, NodeId),
     ServerUnreachable(u64, NodeId),
-    TooManyErrors(u64),
     NoFragmentStatus(u64),
     InvalidMessageReceived(u64),
 
     MessageNotComplete,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TransmissionStatus  {
-    Pending,
-    Completed,
-}
-
-
 // ------------------------------ HIGH MESSAGE
 // use this to store message and message State 
 #[derive(Debug, Clone)]
-pub struct SentMessageStatus {
+pub struct SentMessageWrapper {
     pub session_id: u64,
-    pub source: NodeId,
     pub destination: NodeId,
     pub total_n_fragments: u64, 
-
     pub acked: HashSet<u64>,
     pub fragments: Vec<Fragment>,
-    pub transmission_status: TransmissionStatus ,
 
     pub raw_data: String,
 }
 
-impl SentMessageStatus {
-    pub fn new_from_raw_data(session_id: u64, source: NodeId, destination: NodeId, raw_data: String) -> Self {
-        let (fragments, total_n_fragments) =SentMessageStatus::fragmentation(&raw_data);
+impl SentMessageWrapper {
+    pub fn new_from_raw_data(session_id: u64, destination: NodeId, raw_data: String) -> Self {
+        let (fragments, total_n_fragments) =SentMessageWrapper::fragmentation(&raw_data);
         Self{
             session_id,
-            source,
             destination,
             total_n_fragments,
             acked: HashSet::new(),
             fragments,
-            transmission_status: TransmissionStatus::Pending,
             raw_data,
         }
     }
@@ -111,11 +98,9 @@ impl SentMessageStatus {
 
 // use this to save the arriving fragments
 #[derive(Debug, Clone)]
-pub struct RecvMessageStatus {
+pub struct RecvMessageWrapper {
     pub session_id: u64,
     pub source: NodeId,
-    pub destination: NodeId,
-
     pub total_n_fragments:u64,
     pub arrived: HashSet<u64>,
     pub fragments: Vec<Option<Fragment>>,
@@ -123,12 +108,11 @@ pub struct RecvMessageStatus {
     pub raw_data: String,
 }
 
-impl RecvMessageStatus{
-    pub fn new(session_id: u64, source: NodeId, destination: NodeId, total_n_fragments: u64) -> Self {
+impl RecvMessageWrapper{
+    pub fn new(session_id: u64, source: NodeId, total_n_fragments: u64) -> Self {
         Self {
             session_id,
             source,
-            destination,
             total_n_fragments,
             arrived: HashSet::new(),
             fragments: vec![None; total_n_fragments as usize], 
@@ -165,6 +149,7 @@ impl RecvMessageStatus{
             })
             .collect();
     
+        // funziona anche con i ?
         match String::from_utf8(full_message) {
             Ok(raw_data) => {
                 self.raw_data = raw_data;
