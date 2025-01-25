@@ -6,7 +6,7 @@ use wg_2024::controller;
 use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
 use message::{
     ChatRequest, ChatResponse, DroneSend, MediaRequest, MediaResponse, MessageError, NodeCommand,
-    NodeEvent, RecvMessageStatus, SentMessageStatus, TransmissionStatus,
+    NodeEvent, RecvMessageWrapper, SentMessageWrapper, TransmissionStatus,
 };
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{
@@ -37,8 +37,8 @@ pub struct Worker {
     last_flood_id: u64,
 
     // current sended fragments status
-    sent_message_status: HashMap<u64, SentMessageStatus>,
-    recv_message_status: HashMap<u64, RecvMessageStatus>,
+    sent_message_status: HashMap<u64, SentMessageWrapper>,
+    recv_message_status: HashMap<u64, RecvMessageWrapper>,
 }
 
 impl Worker {
@@ -361,7 +361,7 @@ impl Worker {
                 .recv_message_status
                 .entry(packet.session_id)
                 .or_insert_with(|| {
-                    RecvMessageStatus::new(
+                    RecvMessageWrapper::new(
                         packet.session_id,
                         server,
                         self.id,
@@ -466,7 +466,7 @@ impl Worker {
     fn send_raw_content(&mut self, raw_data: String, destination: NodeId, session_id: u64) {
         self.sent_message_status.insert(
             session_id,
-            SentMessageStatus::new_from_raw_data(session_id, self.id, destination, raw_data),
+            SentMessageWrapper::new_from_raw_data(session_id, self.id, destination, raw_data),
         );
 
         if let Err(e) = self.send_fragments(session_id) {
