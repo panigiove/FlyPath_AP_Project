@@ -1,0 +1,28 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
+crossbeam-channel = "0.5.13"# Dependency for crossbeam channel
+log = "0.4.25"
+env_logger = "0.11.6"
+message = { path = "../message" }
+
+[dev-dependencies]
+lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
+rustbusters-drone = {git = "https://github.com/Rustbusters/drone.git" }
+rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
+ap2024_rustinpeace_nosounddrone = { git = "https://github.com/Rust-In-Peace-AP/No-Sound-Drone.git" }
+
+# bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git" }
+bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false }
+# bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false, features = ["debug"] }
+
+LeDron_James = { git = "https://github.com/anass03/LeDron_James.git" }
+rolling_drone = { git = "https://github.com/giorebecchi/RollingDrone.git"}
+rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
+rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
+rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
+flyPath = { git = "https://github.com/panigiove/FlyPath.git" } # TODO: rimuoverlo
