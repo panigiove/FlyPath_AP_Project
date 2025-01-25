@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::Sender;
+use crossbeam_channel::Sender;
 
 pub const FRAGMENT_DSIZE: usize = 128;
 
@@ -15,24 +15,29 @@ pub enum NodeCommand {
 }
 pub enum NodeEvent{
     PacketSent(Packet),
-    ControllerShortcut(Packet),
-    MessageSent(SentMessageStatus), // send message
+    CreateMessage(SentMessageStatus), // try send message (every times is sended a stream of fragment)
     MessageRecv(RecvMessageStatus), // received full message 
-    FragmentRecv(RecvMessageStatus), // received first fragment of message
-    MessageDropped(SentMessageStatus), // too many tries for this message
-    MessageTooOld(RecvMessageStatus), // sender of message hasn't send the other fragments in the time limit
 }
 
 
 // ------------------------------ HIGH MESSAGE ERRORS
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageError {
     DirectConnectionDoNotWork(u64, NodeId),
     ServerUnreachable(u64, NodeId),
     TooManyErrors(u64),
     NoFragmentStatus(u64),
     InvalidMessageReceived(u64),
+
+    MessageNotComplete,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransmissionStatus  {
+    Pending,
+    Completed,
+}
+
 
 // ------------------------------ HIGH MESSAGE
 // use this to store message and message State 
@@ -48,9 +53,6 @@ pub struct SentMessageStatus {
     pub transmission_status: TransmissionStatus ,
 
     pub raw_data: String,
-
-    pub n_unreachable_direct: u64,
-    pub n_unreachable_server: u64,
 }
 
 impl SentMessageStatus {
@@ -65,14 +67,9 @@ impl SentMessageStatus {
             fragments,
             transmission_status: TransmissionStatus::Pending,
             raw_data,
-            n_unreachable_direct:0,
-            n_unreachable_server:0,
         }
     }
 
-    pub fn evaluate_error_threshold(&self) -> bool{
-        self.n_unreachable_direct > 5 || self.n_unreachable_server > 5
-    }
 
     pub fn is_all_fragment_acked(&self) -> bool{
         self.total_n_fragments == self.acked.len() as u64
@@ -80,6 +77,16 @@ impl SentMessageStatus {
 
     pub fn get_fragment(&self, i: usize) -> Option<Fragment>{
         self.fragments.get(i).cloned()
+    }
+
+    pub fn fragment_acked(&self, index: u64) -> bool{
+        self.acked.contains(&index)
+    }
+
+    pub fn add_acked(&mut self, index: u64){
+        if index < self.total_n_fragments {
+            self.acked.insert(index);
+        }
     }
 
     pub fn fragmentation (raw_data: &String) -> (Vec<Fragment>, u64){
@@ -112,6 +119,8 @@ pub struct RecvMessageStatus {
     pub total_n_fragments:u64,
     pub arrived: HashSet<u64>,
     pub fragments: Vec<Option<Fragment>>,
+
+    pub raw_data: String,
 }
 
 impl RecvMessageStatus{
@@ -123,6 +132,7 @@ impl RecvMessageStatus{
             total_n_fragments,
             arrived: HashSet::new(),
             fragments: vec![None; total_n_fragments as usize], 
+            raw_data: "".to_string(),
         }
     }
 
@@ -137,13 +147,34 @@ impl RecvMessageStatus{
             self.fragments[index as usize] = Some(fragment); 
         }
     }
+
+    pub fn try_generate_raw_data(&mut self) -> Result<(), MessageError> {
+        if !self.is_all_fragments_arrived() {
+            return Err(MessageError::MessageNotComplete);
+        }
+    
+        let full_message: Vec<u8> = self
+            .fragments
+            .iter()
+            .flat_map(|frag| {
+                frag.as_ref()
+                    .map(|f| f.data[..f.length as usize].to_vec())
+                    .unwrap_or_else(|| {
+                        Vec::new()
+                    })
+            })
+            .collect();
+    
+        match String::from_utf8(full_message) {
+            Ok(raw_data) => {
+                self.raw_data = raw_data;
+                Ok(())
+            }
+            Err(_) => Err(MessageError::InvalidMessageReceived(self.session_id)),
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TransmissionStatus  {
-    Pending,
-    Completed,
-}
 
 
 // ------------------------------ HIGH MESSAGE TYPE

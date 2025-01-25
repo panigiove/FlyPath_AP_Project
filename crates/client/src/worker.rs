@@ -1,43 +1,19 @@
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
-use std::process;
+use std::process::{self, exit};
+use wg_2024::controller;
 
 use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
-use message::{ChatRequest, ChatResponse, DroneSend, MediaRequest, MediaResponse};
+use message::{
+    ChatRequest, ChatResponse, DroneSend, MediaRequest, MediaResponse, MessageError, NodeCommand,
+    NodeEvent, RecvMessageStatus, SentMessageStatus, TransmissionStatus,
+};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
 };
 
-use crate::comunication::{FromUiCommunication, MessageError, ServerType, ToUIComunication};
-
-#[derive(Debug, Clone, PartialEq)]
-enum Status {
-    Sending,
-    Ok,
-}
-
-#[derive(Debug, Clone)]
-struct SentMessageStatus {
-    session_id: u64,
-    server: NodeId,
-    total_n_fragments: u64, // total number of frag
-    acked: HashSet<u64>,
-    unreachable_direct: u64,
-    unreachable_server: u64,
-    fragments: Vec<Fragment>,
-    status: Status,
-}
-
-#[derive(Debug, Clone)]
-struct RecvMessageStatus {
-    session_id: u64,
-    server: NodeId,
-    total_frag: u64, // total number of frag
-    arrived: HashSet<u64>,
-    fragments: Vec<Fragment>,
-}
-
+use crate::comunication::{FromUiCommunication, ServerType, ToUIComunication};
 
 #[derive(Debug)]
 pub struct Worker {
@@ -47,11 +23,12 @@ pub struct Worker {
     packet_send: HashMap<NodeId, Sender<Packet>>,
     prec_flood_ids: HashSet<(u64, NodeId)>,
 
-    
-
     // receive user interaction and send to user messages
     ui_recv: Receiver<FromUiCommunication>,
     ui_send: Sender<ToUIComunication>,
+
+    controller_recv: Receiver<NodeCommand>,
+    controller_send: Sender<NodeEvent>,
 
     // network status
     adj_list: HashMap<NodeId, HashSet<NodeId>>,
@@ -70,6 +47,8 @@ impl Worker {
         node_type: NodeType,
         packet_recv: Receiver<Packet>,
         packet_send: HashMap<u8, Sender<Packet>>,
+        controller_recv: Receiver<NodeCommand>,
+        controller_send: Sender<NodeEvent>,
     ) -> Self {
         debug!("Creating a new Client with id: {:?}", id);
         let (_to_logic, ui_recv) = unbounded();
@@ -83,6 +62,8 @@ impl Worker {
             prec_flood_ids: HashSet::new(),
             ui_recv,
             ui_send,
+            controller_recv,
+            controller_send,
             adj_list: HashMap::new(),
             nodes_type: HashMap::new(),
             servers_type: HashMap::new(),
@@ -96,6 +77,11 @@ impl Worker {
         self.send_flood_request();
         loop {
             select_biased! {
+                recv (self.controller_recv) -> command => {
+                    if let Ok(command) = command {
+                        self.command_handler(command);
+                    }
+                }
                 recv(self.ui_recv) -> interaction => {
                     if let Ok(interaction) = interaction {
                         self.interaction_handler(interaction);
@@ -107,6 +93,18 @@ impl Worker {
                     }
                 }
             }
+        }
+    }
+
+    fn command_handler(&mut self, command: NodeCommand) {
+        match command {
+            NodeCommand::RemoveSender(node_id) => {
+                self.packet_send.remove(&node_id);
+            }
+            NodeCommand::AddSender(node_id, sender) => {
+                self.packet_send.insert(node_id, sender);
+            }
+            NodeCommand::FromShortcut(packet) => self.packet_handler(packet),
         }
     }
 
@@ -178,17 +176,11 @@ impl Worker {
     }
 
     fn ack_handler(&mut self, ack: &Ack, packet: &Packet) {
-        if let Some(mut message_status) = self.sent_message_status.remove(&packet.session_id) {
-            if ack.fragment_index < message_status.total_n_fragments {
-                message_status.acked.insert(ack.fragment_index);
-                if message_status.acked.len() == message_status.total_n_fragments as usize {
-                    self.send_to_ui(ToUIComunication::ServerReceivedAllSegment(
-                        message_status.session_id,
-                    ));
-                } else {
-                    self.sent_message_status
-                        .insert(message_status.session_id, message_status);
-                }
+        if let Some(message_status) = self.sent_message_status.get_mut(&packet.session_id) {
+            message_status.add_acked(ack.fragment_index);
+            if message_status.is_all_fragment_acked() {
+                let session_id = message_status.session_id;
+                self.send_to_ui(ToUIComunication::ServerReceivedAllSegment(session_id));
             }
         }
     }
@@ -215,6 +207,13 @@ impl Worker {
                 for (node_id, sender) in &self.packet_send {
                     if node_id != last_node_id {
                         let _ = sender.send(packet_to_send.clone());
+                        if self
+                            .controller_send
+                            .send(NodeEvent::PacketSent(packet_to_send.clone()))
+                            .is_err()
+                        {
+                            exit(1); // CRASH
+                        }
                     }
                 }
             } else {
@@ -226,8 +225,21 @@ impl Worker {
                     .current_hop()
                     .and_then(|next_hop: u8| self.packet_send.get(&next_hop))
                 {
-                    if let Err(_e) = sender.send(response.clone()) {}
-                } else {
+                    if let Err(_e) = sender.send(response.clone()) {
+                        if self
+                            .controller_send
+                            .send(NodeEvent::ControllerShortcut(response.clone()))
+                            .is_err()
+                        {
+                            exit(1); // CRASH
+                        }
+                    } else if self
+                            .controller_send
+                            .send(NodeEvent::PacketSent(response.clone()))
+                            .is_err()
+                    {
+                        exit(1); // CRASH
+                    }
                 }
             }
         }
@@ -244,23 +256,17 @@ impl Worker {
                     servers = true;
                 }
             }
-
             if servers {
-                for (session_id, fragment_status) in self.sent_message_status.iter_mut() {
-                    if self.nodes_type.contains_key(&fragment_status.server)
-                        && fragment_status.status == Status::Sending
+                for (session_id, message_status) in self.sent_message_status.iter_mut() {
+                    if self.nodes_type.contains_key(&message_status.destination)
+                        && message_status.transmission_status == TransmissionStatus::Pending
                     {
-                        // server is reachable with this flood_response even if is not the best path
                         reachable_messages.push(*session_id);
                     }
                 }
-
                 for session_id in reachable_messages {
-                    if let Some(message_status) = self.sent_message_status.remove(&session_id) {
-                        if let Some(message_status) = self.send_fragments(message_status) {
-                            self.sent_message_status
-                                .insert(message_status.session_id, message_status);
-                        }
+                    if let Err(e) = self.send_fragments(session_id) {
+                        self.send_to_ui(ToUIComunication::Err(e));
                     }
                 }
             }
@@ -272,12 +278,8 @@ impl Worker {
         match nack.nack_type {
             NackType::Dropped => self.dropped_handler(packet.session_id, fragment_index),
             _ => {
-                if let Some(mut message_status) =
-                    self.sent_message_status.remove(&packet.session_id)
-                {
-                    message_status.status = Status::Sending;
-                    self.sent_message_status
-                        .insert(packet.session_id, message_status);
+                if let Some(message_status) = self.sent_message_status.get_mut(&packet.session_id) {
+                    message_status.transmission_status = TransmissionStatus::Pending;
                     self.send_flood_request();
                 }
             }
@@ -286,58 +288,60 @@ impl Worker {
 
     fn dropped_handler(&mut self, packet_session_id: u64, fragment_index: u64) {
         if let Some(mut message_status) = self.sent_message_status.remove(&packet_session_id) {
-            if message_status.unreachable_direct > 30 || message_status.unreachable_server > 30 {
+            message_status.transmission_status = TransmissionStatus::Pending;
+            if message_status.evaluate_error_threshold() {
                 self.send_to_ui(ToUIComunication::Err(MessageError::TooManyErrors(
                     message_status.session_id,
                 )));
-            } else if let Some(fragment) = message_status.fragments.get(fragment_index as usize) {
-                if let Some(path_trace) = self.elaborate_path_trace(message_status.server) {
-                    message_status.unreachable_server = 0;
-                    message_status.status = Status::Sending;
-                    if !message_status.acked.contains(&fragment_index) {
-                        let source_routing: SourceRoutingHeader =
-                            SourceRoutingHeader::with_first_hop(path_trace);
+                return;
+            }
+
+            // get fragment and elaborate path trace
+            if let Some(fragment) = message_status.get_fragment(fragment_index as usize) {
+                if let Some(path_trace) = self.elaborate_path_trace(message_status.destination) {
+                    message_status.n_unreachable_server = 0;
+
+                    // check if not acked
+                    if !message_status.fragment_acked(fragment_index) {
+                        let source_routing = SourceRoutingHeader::with_first_hop(path_trace);
                         let packet: Packet = Packet::new_fragment(
                             source_routing.clone(),
                             message_status.session_id,
                             fragment.clone(),
                         );
 
-                        if let Some(next_hop) = source_routing.current_hop() {
-                            if let Some(sender) = self.packet_send.get(&next_hop) {
-                                if sender.send(packet).is_err() {
-                                    // error during send
-                                    self.send_to_ui(ToUIComunication::Err(
-                                        MessageError::DirectConnectionDoNotWork(
-                                            message_status.session_id,
-                                            source_routing.current_hop().unwrap(),
-                                        ),
-                                    ));
-                                    message_status.unreachable_direct += 1;
-                                    self.send_flood_request();
-                                } else {
-                                    message_status.unreachable_direct = 0;
-                                    message_status.status = Status::Ok;
-                                }
-                            } else {
+                        let next_hop = source_routing.current_hop().unwrap();
+                        // try to send
+                        if let Some(sender) = self.packet_send.get(&next_hop) {
+                            if sender.send(packet).is_err() {
                                 self.send_to_ui(ToUIComunication::Err(
                                     MessageError::DirectConnectionDoNotWork(
                                         message_status.session_id,
                                         source_routing.current_hop().unwrap(),
                                     ),
                                 ));
-                                message_status.unreachable_direct += 1;
+                                message_status.n_unreachable_direct += 1;
                                 self.send_flood_request();
+                            } else {
+                                message_status.n_unreachable_direct = 0;
+                                message_status.transmission_status = TransmissionStatus::Completed;
                             }
                         } else {
+                            self.send_to_ui(ToUIComunication::Err(
+                                MessageError::DirectConnectionDoNotWork(
+                                    message_status.session_id,
+                                    source_routing.current_hop().unwrap(),
+                                ),
+                            ));
+                            message_status.n_unreachable_direct += 1;
                             self.send_flood_request();
                         }
                     }
                 } else {
-                    message_status.unreachable_server += 1;
+                    message_status.n_unreachable_server += 1;
                     self.send_to_ui(ToUIComunication::Err(MessageError::ServerUnreachable(
                         message_status.session_id,
-                        message_status.server,
+                        message_status.destination,
                     )));
                     self.send_flood_request();
                 }
@@ -353,53 +357,51 @@ impl Worker {
 
     fn fragment_handler(&mut self, fragment: &Fragment, packet: &Packet) {
         if let Some(server) = packet.routing_header.source() {
-            let mut message_status = self
+            let message_status = self
                 .recv_message_status
-                .remove(&packet.session_id)
-                .unwrap_or_else(|| RecvMessageStatus {
-                    session_id: packet.session_id,
-                    server,
-                    total_frag: fragment.total_n_fragments,
-                    arrived: HashSet::new(),
-                    fragments: vec![fragment.clone(); fragment.total_n_fragments as usize],
+                .entry(packet.session_id)
+                .or_insert_with(|| {
+                    RecvMessageStatus::new(
+                        packet.session_id,
+                        server,
+                        self.id,
+                        fragment.total_n_fragments,
+                    )
                 });
 
             let index = fragment.fragment_index;
-            message_status.fragments[index as usize] = fragment.clone();
-            message_status.arrived.insert(index);
+            message_status.add_fragment(fragment.clone());
 
-            self.send_ack(&message_status, index);
-
-            if message_status.arrived.len() == message_status.total_frag as usize {
-                let full_message: Vec<u8> = message_status
-                    .fragments
-                    .iter()
-                    .flat_map(|frag: &Fragment| frag.data[..frag.length as usize].to_vec())
-                    .collect();
-
-                if let Ok(message_str) = String::from_utf8(full_message) {
-                    self.process_complete_message(message_str, packet);
+            if let Err(e) = message_status.try_generate_raw_data() {
+                if let MessageError::InvalidMessageReceived(session_id) = e {
+                    self.recv_message_status.remove(&session_id);
+                    self.send_to_ui(ToUIComunication::Err(MessageError::InvalidMessageReceived(
+                        session_id,
+                    )));
+                    return;
                 }
+                self.send_ack(packet.session_id, index);
             } else {
-                self.recv_message_status
-                    .insert(packet.session_id, message_status);
+                self.send_ack(packet.session_id, index);
+                let message_status = self.recv_message_status.remove(&packet.session_id).unwrap();
+                self.process_complete_message(message_status.raw_data, packet);
             }
         }
     }
 
-    fn process_complete_message(&mut self, message_str: String, packet: &Packet) {
+    fn process_complete_message(&mut self, raw_data: String, packet: &Packet) {
         if let Some(server_id) = packet.routing_header.source() {
-            if message_str == "MediaServer" {
+            if raw_data == "MediaServer" {
                 self.servers_type.insert(server_id, ServerType::MediaServer);
                 return;
-            } else if message_str == "ChatServer" {
+            } else if raw_data == "ChatServer" {
                 self.servers_type.insert(server_id, ServerType::ChatServer);
                 return;
             }
         }
 
         // Try parsing as MediaResponse first
-        if let Ok(media_response) = MediaResponse::from_string(message_str.clone()) {
+        if let Ok(media_response) = MediaResponse::from_string(raw_data.clone()) {
             match media_response {
                 MediaResponse::MediaList(list) => {
                     self.send_to_ui(ToUIComunication::ResponseMediaList(packet.session_id, list));
@@ -412,7 +414,7 @@ impl Worker {
         }
 
         // If not MediaResponse, try ChatResponse
-        if let Ok(chat_response) = ChatResponse::from_string(message_str) {
+        if let Ok(chat_response) = ChatResponse::from_string(raw_data) {
             match chat_response {
                 ChatResponse::ClientList(clients) => {
                     self.send_to_ui(ToUIComunication::ResponseClientList(
@@ -440,139 +442,92 @@ impl Worker {
         )));
     }
 
-    fn send_ack(&self, message_status: &RecvMessageStatus, fragment_index: u64) {
-        if let Some(path_trace) = self.elaborate_path_trace(message_status.server) {
-            let source_routing = SourceRoutingHeader::with_first_hop(path_trace);
-            let packet = Packet::new_ack(
-                source_routing.clone(),
-                message_status.session_id,
-                fragment_index,
-            );
-
-            if let Some(next_hop) = source_routing.current_hop() {
-                if let Some(sender) = self.packet_send.get(&next_hop) {
-                    if let Ok(()) = sender.send(packet.clone()) {
-                        return;
+    fn send_ack(&self, session_id: u64, fragment_index: u64) {
+        if let Some(message_status) = self.recv_message_status.get(&session_id) {
+            if let Some(path_trace) = self.elaborate_path_trace(message_status.source) {
+                let source_routing = SourceRoutingHeader::with_first_hop(path_trace);
+                let packet = Packet::new_ack(
+                    source_routing.clone(),
+                    message_status.session_id,
+                    fragment_index,
+                );
+                if let Some(next_hop) = source_routing.current_hop() {
+                    if let Some(sender) = self.packet_send.get(&next_hop) {
+                        if let Ok(()) = sender.send(packet.clone()) {
+                            return;
+                        }
                     }
                 }
             }
-
             // TODO: SHORTCUT DII A MARTINA CHE è PROBLEMA SUO ORA.
         }
     }
 
-    fn send_fragments(
-        &mut self,
-        mut message_status: SentMessageStatus,
-    ) -> Option<SentMessageStatus> {
-        let mut make_flood_request = false;
-        message_status.status = Status::Sending;
+    fn send_raw_content(&mut self, raw_data: String, destination: NodeId, session_id: u64) {
+        self.sent_message_status.insert(
+            session_id,
+            SentMessageStatus::new_from_raw_data(session_id, self.id, destination, raw_data),
+        );
 
-        if message_status.unreachable_direct > 30 || message_status.unreachable_server > 30 {
-            self.send_to_ui(ToUIComunication::Err(MessageError::TooManyErrors(
-                message_status.session_id,
-            )));
-            return None;
+        if let Err(e) = self.send_fragments(session_id) {
+            self.send_to_ui(ToUIComunication::Err(e));
         }
+    }
 
-        if let Some(path_trace) = self.elaborate_path_trace(message_status.server) {
-            message_status.unreachable_server = 0;
+    fn send_fragments(&mut self, session_id: u64) -> Result<(), MessageError> {
+        if let Some(mut message_status) = self.sent_message_status.remove(&session_id) {
+            message_status.transmission_status = TransmissionStatus::Pending;
 
-            let source_routing: SourceRoutingHeader =
-                SourceRoutingHeader::with_first_hop(path_trace);
+            if message_status.evaluate_error_threshold() {
+                return Err(MessageError::TooManyErrors(message_status.session_id));
+            }
 
-            if let Some(next_hop) = source_routing.current_hop() {
+            if let Some(path_trace) = self.elaborate_path_trace(message_status.destination) {
+                message_status.n_unreachable_server = 0;
+                let source_routing = SourceRoutingHeader::with_first_hop(path_trace);
+                let next_hop = source_routing.current_hop().unwrap(); // safe unwrap cus elaborate path trace doesnt return a invalid path
+
                 if let Some(sender) = self.packet_send.get(&next_hop) {
-                    let mut sended = true;
                     for fragment in message_status.fragments.iter() {
-                        if !message_status.acked.contains(&fragment.fragment_index) {
+                        if !message_status.fragment_acked(fragment.fragment_index) {
                             let packet: Packet = Packet::new_fragment(
                                 source_routing.clone(),
-                                message_status.session_id,
+                                session_id,
                                 fragment.clone(),
                             );
 
                             if sender.send(packet).is_err() {
-                                // error during send
-                                self.send_to_ui(ToUIComunication::Err(
-                                    MessageError::DirectConnectionDoNotWork(
-                                        message_status.session_id,
-                                        source_routing.current_hop().unwrap(),
-                                    ),
+                                message_status.n_unreachable_direct += 1;
+                                self.sent_message_status.insert(session_id, message_status);
+                                return Err(MessageError::DirectConnectionDoNotWork(
+                                    session_id,
+                                    source_routing.current_hop().unwrap(),
                                 ));
-                                sended = false;
-                                make_flood_request = true;
-                                message_status.unreachable_direct += 1;
-                                break;
                             } else {
-                                message_status.unreachable_direct = 0;
+                                message_status.n_unreachable_direct = 0;
                             }
                         }
                     }
-                    if sended {
-                        message_status.status = Status::Ok;
-                    }
+                    message_status.transmission_status = TransmissionStatus::Completed;
+                    self.sent_message_status
+                        .insert(message_status.session_id, message_status);
+                    Ok(())
                 } else {
-                    self.send_to_ui(ToUIComunication::Err(
-                        MessageError::DirectConnectionDoNotWork(
-                            message_status.session_id,
-                            source_routing.current_hop().unwrap(),
-                        ),
+                    message_status.n_unreachable_direct += 1;
+                    self.sent_message_status.insert(session_id, message_status);
+                    return Err(MessageError::DirectConnectionDoNotWork(
+                        session_id,
+                        source_routing.current_hop().unwrap(),
                     ));
-                    make_flood_request = true;
-                    message_status.unreachable_direct += 1;
                 }
             } else {
-                make_flood_request = true;
+                let destination = message_status.destination;
+                message_status.n_unreachable_server += 1;
+                self.sent_message_status.insert(session_id, message_status);
+                Err(MessageError::ServerUnreachable(session_id, destination))
             }
         } else {
-            message_status.unreachable_server += 1;
-            self.send_to_ui(ToUIComunication::Err(MessageError::ServerUnreachable(
-                message_status.session_id,
-                message_status.server,
-            )));
-            make_flood_request = true;
-        }
-
-        if make_flood_request {
-            self.send_flood_request();
-        }
-        Some(message_status)
-    }
-
-    fn send_raw_content(&mut self, raw_content: String, destination: NodeId, session_id: u64) {
-        const FRAGMENT_SIZE: usize = 128;
-
-        let raw_bytes = raw_content.into_bytes();
-        let total_frag = raw_bytes.len().div_ceil(FRAGMENT_SIZE) as u64;
-
-        let message_status = SentMessageStatus {
-            session_id,
-            server: destination,
-            acked: HashSet::new(),
-            total_n_fragments: total_frag,
-            unreachable_direct: 0,
-            unreachable_server: 0,
-            fragments: raw_bytes
-                .chunks(FRAGMENT_SIZE)
-                .enumerate()
-                .map(|(i, chunk)| {
-                    let mut data = [0; FRAGMENT_SIZE];
-                    data[..chunk.len()].copy_from_slice(chunk);
-                    Fragment {
-                        fragment_index: i as u64,
-                        total_n_fragments: total_frag,
-                        length: chunk.len() as u8,
-                        data,
-                    }
-                })
-                .collect(),
-            status: Status::Sending,
-        };
-
-        if let Some(message_status) = self.send_fragments(message_status) {
-            self.sent_message_status
-                .insert(message_status.session_id, message_status);
+            Err(MessageError::NoFragmentStatus(session_id))
         }
     }
 
@@ -638,6 +593,8 @@ impl Worker {
     }
 
     fn send_flood_request(&mut self) {
+        self.send_to_ui(ToUIComunication::NewFloodRequest());
+
         // reset the adj list and node type
         self.reset_network_state();
         self.last_flood_id += 1;
