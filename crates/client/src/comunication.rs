@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use message::MessageError;
 use wg_2024::network::NodeId;
 
 #[allow(unused)]
@@ -48,19 +49,10 @@ pub enum ToUIComunication {
     ConfirmMessageSent(u64), // server  confirm delivery of message
 
     ServerList(Option<Vec<NodeId>>, Option<HashMap<NodeId, ServerType>>),
+    NewFloodRequest(),
 
     Err(MessageError),
     ServerReachable(NodeId),
 
     ServerReceivedAllSegment(u64),
-}
-
-#[allow(unused)]
-#[derive(Debug, Clone)]
-pub enum MessageError {
-    DirectConnectionDoNotWork(u64, NodeId),
-    ServerUnreachable(u64, NodeId),
-    TooManyErrors(u64),
-    NoFragmentStatus(u64),
-    InvalidMessageReceived(u64),
 }

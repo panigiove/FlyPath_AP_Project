@@ -1,7 +1,7 @@
 // TODO: network discovery protocol, da mandare per inizializzare poi ogni tot ms e poi per ogni nack
 mod comunication;
-mod worker;
 mod test;
+mod worker;
 
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
@@ -14,7 +14,7 @@ use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
 };
 
-use comunication::{FromUiCommunication, MessageError, ServerType, ToUIComunication};
+use comunication::{FromUiCommunication, ServerType, ToUIComunication};
 
 // Send N fragment at the time
 // every ack send another frag
@@ -22,14 +22,10 @@ use comunication::{FromUiCommunication, MessageError, ServerType, ToUIComunicati
 // if other nack make again the flood_request and send from the ack not acked.
 // TODO: introdurre un aging
 #[derive(Debug)]
-pub struct Client {
-    
-}
+pub struct Client {}
 
 // #[allow(unused)]
-impl Client {
-   
-}
+impl Client {}
 
 #[cfg(test)]
 mod tests {
