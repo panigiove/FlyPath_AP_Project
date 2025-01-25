@@ -16,7 +16,7 @@ pub enum UIcommand{
     PacketDropped(Packet),
 }
 
-enum Operation{
+pub enum Operation{
     AddDrone,
     RemoveDrone,
     AddSender,

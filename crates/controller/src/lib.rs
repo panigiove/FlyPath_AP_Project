@@ -1,15 +1,18 @@
 mod controller_test;
 mod utility;
 
+use std::ascii::Char::Null;
 use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
-use wg_2024::config::{Client, Drone, Server};
+
 use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
 use rand::Rng;
 use std::cmp;
+use std::ops::Deref;
+use std::process::id;
 use utility::UIcommand;
 use utility::Operation;
 use ap2024_rustinpeace_nosounddrone::NoSoundDroneRIP;
@@ -22,15 +25,18 @@ use rustastic_drone::RustasticDrone;
 use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
+use wg_2024::drone::Drone;
+use crate::utility::Operation::{AddSender, RemoveSender};
 
 #[derive(Debug, Clone)]
 pub struct Controller{
     pub drones: HashMap<NodeId, Box<dyn Drone>>,
     pub clients: HashMap<NodeId, Box<dyn Client>>,
     pub servers: HashMap<NodeId, Box<dyn Server>>,
+    pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
     pub send_command: HashMap<NodeId, Sender<DroneCommand>>,
     pub recive_event: HashMap<NodeId, Receiver<DroneEvent>>, //
-    pub send_packet_server: HashMap<NodeId, Sender<Packet>>,
+    pub send_packet_server: HashMap<NodeId, Sender<Packet>>, //canali diversi per client e server vedi nodeCommand
     pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
     pub ui_reciver: Receiver<UIcommand>, //TODO cosa invia controller a sender
     pub ui_sender: Sender<UIcommand>
@@ -44,7 +50,7 @@ pub fn drone_random(id: NodeId,
                     sender_event: Sender<DroneEvent>,
                     receiver_command: Receiver<DroneCommand>,
                     receiver_packet: Receiver<DroneCommand>,
-                    packet_sender: HashMap<NodeId, Sender<Packet>>) -> Option<Box<Drone>> {
+                    packet_sender: HashMap<NodeId, Sender<Packet>>) -> Option<Box<dyn Drone>> {
     let mut rng = rand::thread_rng();
     let rand = rng.gen_range(1..11);
     let drop_rate = rng.gen_range(0.0 .. 1.1);
@@ -66,9 +72,9 @@ pub fn drone_random(id: NodeId,
 impl Controller{
 
     pub fn new(
-        drones: HashMap<NodeId, Box<Drone>>,
-        clients: HashMap<NodeId, Box<Client>>,
-        servers: HashMap<NodeId, Box<Server>>,
+        drones: HashMap<NodeId, Box<dyn Drone>>,
+        clients: HashMap<NodeId, Box<dyn Client>>,
+        servers: HashMap<NodeId, Box<dyn Server>>,
         send_command: HashMap<NodeId, Sender<DroneCommand>>,
         recive_event: HashMap<NodeId, Receiver<DroneEvent>>,
         send_packet_server: HashMap<NodeId, Sender<Packet>>,
@@ -86,10 +92,6 @@ impl Controller{
             send_packet_client,
             ui_comunication: ui_reciver,
         }
-    }
-
-    pub fn initialize_network(){
-        //creo 10 droni
     }
 
     pub fn run(&mut self){
@@ -188,58 +190,67 @@ impl Controller{
     }
 
     //adds a new dorne to the network
-    pub fn spawn(&mut self, connections: Vec<NodeId>){
-        if !self.check_network(AddDrone, (id, _)){
-            return
+    pub fn spawn(&mut self, id: &NodeId, connections: &Vec<NodeId>, drone: Box<dyn Drone>){
+        if !self.check_network_before_add_drone(id,connections){
+            eprintln!("Controller: Drone with id = {} can't be added to the network due to a violation of the network requirement", id);
+            return;
         }
-        let mut id = max(self.servers.len(), self.clients.len());
-        id = max(id, self.drones.len()) + 1; //in this way in the vec of connections the drones are well organized
         self.add_drone(id,connections);
     }
 
     pub fn crash(&mut self, id: &NodeId){
-        if !self.is_drone(id) || !self.check_network(RemoveDrone, (id, _)){
-            return
+        if !self.is_drone(id){
+            eprintln!("Controller: Node with id = {} can't be removed to the network cause it isn't a drone", id);
+            return;
+        }
+        if !self.check_network_before_removing_drone(id){
+            eprintln!("Controller: Node with id = {} can't be removed to the network due to a violation of the network requirement", id);
+            return;
         }
         self.remove_drone(id);
     }
 
-    //sends also a remove sender to its neighbours
-    pub fn remove_drone(&mut self, id: &NodeId){
-
-        //inviamo il messaggio per il crash
-        self.send_command.get(*id.clone()).unwrap().send(DroneCommand::Crash).unwrap();
-
-        //inviamo il remove sender ad ogni vicino del nodo crashato
-        self.remove_all_senders(id);
-    }
-
-    //This command adds dst_id to the drone neighbors, with dst_id crossbeam::Sender
     pub fn add_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender: Sender<Packet>){
-        if !self.check_network(AddSender, (id,dst_id)) {
+        if !self.check_network(AddSender, (id, dst_id)) {
             return;
         }
-        self.new_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender: Sender<Packet>);
+        self.new_sender(id, dst_id, sender);
     }
-
-    pub fn add_drone(&mut self, id: NodeId, connections: Vec<NodeId>){
-
-        let (drone, sender_command, receiver_event) = self.new_drone(&id, &connections);
-
-        self.drones.insert(id, drone); //insieriamo il drone nell'elenco
-
-        self.send_command.insert(id, sender_command);
-        self.recive_event.insert(id, receiver_event);
-
-    }
-
 
     pub fn remove_sender(&mut self, id: &NodeId, nghb_id: &NodeId){
-        if !self.check_network(RemoveSender, (id, dst_id)) || !self.is_drone(id) || !self.is_drone(nghb_id){
+        if !self.check_network(RemoveSender, (id, nghb_id)) || !self.is_drone(id) || !self.is_drone(nghb_id){
             return;
         }
         self.close_sender(id, nghb_id);
     }
+
+    //sends also a remove sender to its neighbours
+    //TODO capire quando far rimuovere il drone dalle connection del controller
+    pub fn remove_drone(&mut self, id: &NodeId){
+        if let Some(sender) = self.send_command.get(id){
+            if let Err(e) = sender.send(DroneCommand::Crash){
+                eprintln!("Controller: Node with id = {} doesen't recive correctly the DroneCommand", id);
+            }
+        }
+        self.remove_all_senders(id);
+    }
+
+    //This command adds dst_id to the drone neighbors, with dst_id crossbeam::Sender
+
+
+    pub fn add_drone(&mut self, id: &NodeId, connections: &Vec<NodeId>){
+
+        let (drone, sender_command, receiver_event) = self.new_drone(&id, &connections);
+
+        self.drones.insert(*id, drone); //insieriamo il drone nell'elenco
+
+        self.send_command.insert(*id, sender_command);
+        self.recive_event.insert(*id, receiver_event);
+
+    }
+
+
+
 
     //close the channel with all neighbours of a drone
     fn remove_all_senders(&mut self, id: &NodeId){
@@ -275,90 +286,90 @@ impl Controller{
     }
 
 
-    fn check_network(&mut self, operation: Operation, (drone_id, drone_id2): NodeId) -> bool{
-        let clients = self.clients.clone();
-        let server = self.servers.clone();
-        let adj_list = Vec::new();
+    pub fn check_network_before_add_drone(&self, drone_id: &NodeId, connection: &Vec<NodeId>) -> bool{
+        let mut adj_list = self.connections.clone();
 
-        for (id, connections) in self.drones {
-            adj_list[id] = connections.id;
+        adj_list.insert(*drone_id, connection.clone());
+        for neighbor in connection{
+            if let Some(neighbor) = adj_list.get_mut(&neighbor){
+                neighbor.push(*drone_id);
+            };
         }
 
-        for (id, connections) in self.clients {
-            adj_list[id] = connections.id;
-        }
-
-        for (id, connections) in self.servers {
-            adj_list[id] = connections.id;
-        }
-
-        match operation{
-            Operation::AddDrone =>  {
-                adj_list[drone_id] = drone.connected_node_ids;
-                for id in drone.connected_node_ids{
-                    adj_list[id].push(drone_id);
-                }
-            },
-            Operation::RemoveDrone => {
-                adj_list.remove(drone_id as usize); // deleting the connections of the drone that must be removed
-                for id in drone.connected_node_ids{
-                    for i in id{
-                        if id[i] == drone_id{
-                            adj_list[id].remove(i); // deleting the id of the removed drone from other drone's connections
-                        }
-                    }
-                }
-                //the network must reman connected
-                let mut result = is_connected(drone_id, adj_list);
-            },
-            Operation::AddSender =>{
-                adj_list[drone_id].push(drone_id2); // adding a connection
-            },
-            Operation::RemoveSender => {
-                for i in adj_list[drone_id]{
-                    if id[i] == drone_id{
-                        adj_list[id].remove(i); // deleting the connection
-                    }
-                }
-                let mut result = is_connected(drone_id, adj_list);
-            },
-            _ => Null,
-        }
-
-        pub fn is_connected(id: NodeId, adj_list: &Vec<Vec<NodeId>>) -> bool {
-            let n_nodes = adj_list.len();
-            if n_nodes == 0 {
-                return true; // an empty graph is connected
-            }
-            let mut visited = vec![false; n_nodes];
-
-            pub fn dfs(&self, id: NodeId, adj_list: &Vec<Vec<NodeId>>, visited: &mut Vec<bool>) {
-                visited[id] = true;
-                for &neighbor in &adj_list[id] {
-                    if !visited[neighbor] {
-                        dfs(neighbor, adj_list, visited);
-                    }
-                }
-            }
-            dfs(id, adj_list, &mut visited);
-            visited.into_iter().all(|v| v) // evry drone has been visited?
-        }
-
-        // Each client must remain connected to at least one and at most two drones.
-        for (client, _) in self.clients{
-            if !(adj_list[client].len() > 0 && adj_list[client].len() < 3){
-                result = false;
-            }
-        }
-
-        // Each server must remain connected to at least two drones.
-        for (server, _) in self.servers{
-            if adj_list[server].len() < 3 {
-                result = false;
-            }
-        }
-        result
-
+        self.are_server_and_clients_requirements_respected(&adj_list)
     }
 
+    pub fn check_network_before_removing_drone(&self, drone_id: &NodeId) -> bool{
+        let mut adj_list = self.connections.clone();
+
+        if adj_list.remove(drone_id).is_none(){
+            println!("Controller: Drone with id = {} can't be removed cause it doesen't exist", drone_id);
+        }
+        for neighbors in adj_list.values_mut(){
+            neighbors.retain(|&id| id != *drone_id);
+        }
+
+        self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone_id,&adj_list)
+    }
+
+    pub fn check_network_before_add_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool{
+        let mut adj_list = self.connections.clone();
+
+        if let Some(neighbors) = adj_list.get_mut(drone1_id){
+            neighbors.push(*drone2_id);
+        }
+        if let Some(neighbors) = adj_list.get_mut(drone2_id){
+            neighbors.push(*drone1_id);
+        }
+
+        self.are_server_and_clients_requirements_respected(&adj_list)
+    }
+
+    pub fn check_network_remove_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool{
+        let mut adj_list = self.connections.clone();
+
+        if let Some(neighbors) = adj_list.get_mut(drone1_id){
+            neighbors.retain(|&id| id != *drone2_id);
+        }
+        if let Some(neighbors) = adj_list.get_mut(&drone2_id){
+            neighbors.retain(|&id| id != *drone1_id);
+        }
+
+        self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone1_id,&adj_list)
+    }
+
+    // each client must remain connected to at least one and at most two drones
+    // and each server must remain connected to at least two drones
+    pub fn are_server_and_clients_requirements_respected(&self, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool{
+        self.clients.iter().all(|(&client, _)| {
+            adj_list
+                .get(&client)
+                .map_or(false, |neighbors| neighbors.len() > 0 && neighbors.len() < 3)
+        }) && self.servers.iter().all(|(&server, _)| {
+            adj_list
+                .get(&server)
+                .map_or(false, |neighbors| neighbors.len() >= 2)
+        })
+    }
+
+}
+
+pub fn is_connected(id: &NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
+    let n_nodes = adj_list.len();
+    if n_nodes == 0 {
+        return true; // an empty graph is connected
+    }
+    let mut visited = vec![false; n_nodes];
+    dfs(id, adj_list, &mut visited);
+    visited.into_iter().all(|v| v) // evry drone has been visited?
+}
+pub fn dfs(id: &NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>, visited: &mut Vec<bool>) {
+    visited[id] = true;
+    if let Some(neighbors) = adj_list.get(id){
+        for n in neighbors{
+            if !visited[n]{
+                dfs(n, adj_list, visited);
+            }
+        }
+    }
 }
