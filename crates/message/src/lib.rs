@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crossbeam_channel::Sender;
 
@@ -18,6 +18,7 @@ pub enum NodeEvent{
     PacketSent(Packet),
     CreateMessage(SentMessageWrapper), // try send message (every times is sended a stream of fragment)
     MessageRecv(RecvMessageWrapper), // received full message 
+    ControllerShortcut(Packet), 
 }
 
 
@@ -26,9 +27,9 @@ pub enum NodeEvent{
 pub enum MessageError {
     DirectConnectionDoNotWork(u64, NodeId),
     ServerUnreachable(u64, NodeId),
-    NoFragmentStatus(u64),
+    NoFragmentWrapper(u64),
     InvalidMessageReceived(u64),
-
+    InvalidFragmentIndex(u64, u64),
     MessageNotComplete,
 }
 
@@ -47,7 +48,7 @@ pub struct SentMessageWrapper {
 
 impl SentMessageWrapper {
     pub fn new_from_raw_data(session_id: u64, destination: NodeId, raw_data: String) -> Self {
-        let (fragments, total_n_fragments) =SentMessageWrapper::fragmentation(&raw_data);
+        let (fragments, total_n_fragments) =SentMessageWrapper::fragmentation(raw_data.clone());
         Self{
             session_id,
             destination,
@@ -77,7 +78,7 @@ impl SentMessageWrapper {
         }
     }
 
-    pub fn fragmentation (raw_data: &String) -> (Vec<Fragment>, u64){
+    pub fn fragmentation (raw_data: String) -> (Vec<Fragment>, u64){
         let raw_bytes = raw_data.clone().into_bytes();
         let total_n_fragments = raw_bytes.len().div_ceil(FRAGMENT_DSIZE) as u64;
         let fragments = raw_bytes
