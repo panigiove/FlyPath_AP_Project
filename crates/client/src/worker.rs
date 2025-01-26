@@ -4,7 +4,7 @@ use log::{debug, error, info, warn};
 use message::*;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
-use std::process;
+use std::{path, process};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
@@ -36,7 +36,7 @@ pub struct Worker {
     last_flood_id: u64,
 
     sent_message_wrappers: HashMap<u64, SentMessageWrapper>,
-    recv_message_status: HashMap<(u64, NodeId), RecvMessageWrapper>,
+    recv_message_wrapper: HashMap<(u64, NodeId), RecvMessageWrapper>,
 
     buffer: Vec<Packet>,
 }
@@ -66,7 +66,7 @@ impl Worker {
             servers_type: HashMap::new(),
             last_flood_id: 0,
             sent_message_wrappers: HashMap::new(),
-            recv_message_status: HashMap::new(),
+            recv_message_wrapper: HashMap::new(),
             buffer: Vec::new(),
         }
     }
@@ -336,7 +336,7 @@ impl Worker {
     fn fragment_handler(&mut self, fragment: &Fragment, packet: &Packet) {
         if let Some(server) = packet.routing_header.source() {
             let recv_message_wrapper = self
-                .recv_message_status
+                .recv_message_wrapper
                 .entry((packet.session_id, server))
                 .or_insert_with(|| {
                     RecvMessageWrapper::new(packet.session_id, server, fragment.total_n_fragments)
@@ -347,7 +347,7 @@ impl Worker {
 
             if let Err(e) = recv_message_wrapper.try_generate_raw_data() {
                 if let MessageError::InvalidMessageReceived(session_id) = e {
-                    self.recv_message_status.remove(&(session_id, server));
+                    self.recv_message_wrapper.remove(&(session_id, server));
                     self.send_to_ui(ToUIComunication::Err(MessageError::InvalidMessageReceived(
                         session_id,
                     )));
@@ -355,7 +355,7 @@ impl Worker {
                 }
             } else {
                 let recv_message_wrapper = self
-                    .recv_message_status
+                    .recv_message_wrapper
                     .remove(&(packet.session_id, server))
                     .unwrap();
                 self.process_complete_message(recv_message_wrapper.raw_data, packet);
@@ -478,7 +478,7 @@ impl Worker {
     fn send_ack(&mut self, session_id: u64, source: NodeId, fragment_index: u64) {
         if let Some(path_trace) = self.elaborate_path_trace(source) {
             let packet = Packet::new_ack(
-                SourceRoutingHeader::with_first_hop(path_trace),
+                SourceRoutingHeader::initialize(path_trace),
                 session_id,
                 fragment_index,
             );
@@ -757,7 +757,7 @@ impl PartialOrd for State {
 #[allow(unused)]
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{time::Duration, vec};
 
     use super::*;
     #[test]
@@ -968,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_send_content_success() {
-        let (mut worker, _, drone1_receiver, _, controller_recv, _, _, ui_receiver) =
+        let (mut worker, _, drone1_receiver , _, controller_recv, _, _, ui_receiver) =
             create_worker();
 
         worker.adj_list.extend([
@@ -1331,18 +1331,102 @@ mod tests {
         }
     }
 
-    // TODO: those missing test
-    // #[test]
-    // fn test_nack_dropped_handler(){
-    // }
+    #[test]
+    fn test_nack_dropped_handler(){
+        let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
+        create_worker();
 
-    // #[test]
-    // fn test_nack_other_handler(){
-    // }
+        worker.adj_list.extend([
+            (10, HashMap::from([(1, 1), (2, 1)])),
+            (1, HashMap::from([(10, 1), (2, 1), (3, 1), (11, 1)])), // Nodo 1 senza connessioni
+            (2, HashMap::from([(10, 1), (1, 2), (3, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (3, HashMap::from([(1, 1), (2, 1), (11, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (11, HashMap::from([(1, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (12, HashMap::from([(2, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+        ]);
+        worker.nodes_type.extend([
+            (1, NodeType::Drone),
+            (2, NodeType::Drone),
+            (3, NodeType::Drone),
+            (10, NodeType::Client),
+            (11, NodeType::Server),
+            (12, NodeType::Server),
+        ]);
+        worker.sent_message_wrappers.insert(0, SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()));
 
-    // #[test]
-    // fn test_fragment_handler(){
-    // }
+        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::Dropped }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 11], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
+        node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(worker.adj_list.get(&10).unwrap().get(&1), Some(&2));
+        assert_eq!(worker.adj_list.get(&1).unwrap().get(&10), Some(&2));
+
+        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::Dropped }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 20], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
+        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(worker.adj_list.get(&10).unwrap().get(&1), Some(&3));
+        assert_eq!(worker.adj_list.get(&1).unwrap().get(&10), Some(&3));
+        assert!(!worker.buffer.is_empty());
+    }
+
+    #[test]
+    fn test_nack_other_handler(){
+        let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
+        create_worker();
+
+        worker.adj_list.extend([
+            (10, HashMap::from([(1, 1), (2, 1)])),
+            (1, HashMap::from([(10, 1), (2, 1), (3, 1), (11, 1)])), // Nodo 1 senza connessioni
+            (2, HashMap::from([(10, 1), (1, 2), (3, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (3, HashMap::from([(1, 1), (2, 1), (11, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (11, HashMap::from([(1, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (12, HashMap::from([(2, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+        ]);
+        worker.nodes_type.extend([
+            (1, NodeType::Drone),
+            (2, NodeType::Drone),
+            (3, NodeType::Drone),
+            (10, NodeType::Client),
+            (11, NodeType::Server),
+            (12, NodeType::Server),
+        ]);
+        worker.sent_message_wrappers.insert(0, SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()));
+        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::ErrorInRouting(8) }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 8, 11], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
+
+        assert!(!worker.buffer.is_empty())
+    }
+
+    #[test]
+    fn test_fragment_handler_invalid_message(){
+        let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
+        create_worker();
+
+        worker.adj_list.extend([
+            (10, HashMap::from([(1, 1), (2, 1)])),
+            (1, HashMap::from([(10, 1), (2, 1), (3, 1), (11, 1)])), // Nodo 1 senza connessioni
+            (2, HashMap::from([(10, 1), (1, 2), (3, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (3, HashMap::from([(1, 1), (2, 1), (11, 1), (12, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (11, HashMap::from([(1, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+            (12, HashMap::from([(2, 1), (3, 1)])), // Nodo 2 connesso al nodo 11 con peso 1,
+        ]);
+        worker.nodes_type.extend([
+            (1, NodeType::Drone),
+            (2, NodeType::Drone),
+            (3, NodeType::Drone),
+            (10, NodeType::Client),
+            (11, NodeType::Server),
+            (12, NodeType::Server),
+        ]);
+        let fragment_wrapper = SentMessageWrapper::new_from_raw_data(0, 10, "TestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTest".to_string());
+
+        worker.fragment_handler(&fragment_wrapper.get_fragment(0).unwrap(), &Packet::new_fragment(SourceRoutingHeader::new(vec![11,1,10], 2), 0, fragment_wrapper.get_fragment(0).unwrap()));
+        node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        worker.fragment_handler(&fragment_wrapper.get_fragment(1).unwrap(), &Packet::new_fragment(SourceRoutingHeader::new(vec![11,1,10], 2), 0, fragment_wrapper.get_fragment(1).unwrap()));
+        node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let uimesg = ui_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    }
 
     fn create_worker() -> (
         Worker,
