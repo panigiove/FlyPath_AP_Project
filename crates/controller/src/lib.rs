@@ -6,6 +6,8 @@ use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
 
+use crate::
+
 use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
@@ -34,7 +36,8 @@ pub struct Controller{
     pub clients: HashMap<NodeId, Box<dyn Client>>,
     pub servers: HashMap<NodeId, Box<dyn Server>>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
-    pub send_command: HashMap<NodeId, Sender<DroneCommand>>,
+    pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
+    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
     pub recive_event: HashMap<NodeId, Receiver<DroneEvent>>, //
     pub send_packet_server: HashMap<NodeId, Sender<Packet>>, //canali diversi per client e server vedi nodeCommand
     pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
@@ -210,11 +213,22 @@ impl Controller{
         self.remove_drone(id);
     }
 
-    pub fn add_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender: Sender<Packet>){
-        if !self.check_network(AddSender, (id, dst_id)) {
+    pub fn add_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender1: Sender<Packet>, sender2: Sender<Packet>){
+        if !self.is_drone(id){
+            eprintln!("Controller: Can't be added a new sender to node with id = {} cause it isn't a drone", id);
             return;
         }
-        self.new_sender(id, dst_id, sender);
+        if !self.is_drone(dst_id){
+            eprintln!("Controller: Node with id = {} can't be added as a new sender cause it isn't a drone", dst_id);
+            return;
+        }
+
+        if !self.check_network(AddSender, (id, dst_id)){
+            eprintln!("Controller: Node with id = {} can't be removed to the network due to a violation of the network requirement", id);
+            return;
+        }
+        self.new_sender(id, dst_id, sender1);
+        self.new_sender(dst_id, id, sender2);
     }
 
     pub fn remove_sender(&mut self, id: &NodeId, nghb_id: &NodeId){
@@ -254,7 +268,7 @@ impl Controller{
 
     //close the channel with all neighbours of a drone
     fn remove_all_senders(&mut self, id: &NodeId){
-        let (_, drone) = self.drones.get_key_value(&id).unwrap();
+        let (_, drone) = self.drones.get_key_value(&id).unwrap(); //SISTEMARE
         for i in drone.connected_node_ids{
             //per ora contiamo solo come se fossero tutti droni
             //TODO per client e server
@@ -265,20 +279,35 @@ impl Controller{
 
     //close the channel with a neighbour drone
     fn close_sender(&mut self, id: &NodeId, nghb_id: &NodeId){
-        self.send_command.get(id).unwrap().send(DroneCommand::RemoveSender(*nghb_id)).unwrap();
+        if let Some(sender) = self.send_command.get(id){
+            if let Err(e) = sender.send(DroneCommand::RemoveSender(*nghb_id)){
+                eprintln!("Controller: The DroneCommand RemoveSender to the drone with id = {} hasn't been sent correctly", id);
+            }
+        }
     }
 
     //adds dst_id to the drone neighbors (with dst_id crossbeam::Sender)
     fn new_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender: Sender<Packet>){
-        self.send_command.get(id).unwrap().send(DroneCommand::AddSender(*dst_id, sender)).unwrap();
+        if let Some(sender) = self.send_command.get(id){
+            if let Err(e) = sender.send(DroneCommand::AddSender(*dst_id, sender)){
+                eprintln!("Controller: The DroneCommand AddSender to the drone with id = {} hasn't been sent correctly", id);
+            }
+        }
     }
+
+//TODO sistemare la funzione is_drone in modo tale che sia lei a far stampare il messaggio
 
     //alter the pdr of a drone
     fn set_packet_drop_rate(&mut self, id:&NodeId, new_pdr: f32){
-        if !self.is_drone(id){
-            return
+        if !self.is_drone(dst_id){
+            eprintln!("Controller: Node with id = {} can't be added as a new sender cause it isn't a drone", dst_id);
+            return;
         }
-        self.send_command.get(id).unwrap().send(DroneCommand::SetPacketDropRate(new_pdr)).unwrap();
+        if let Some(sender) = self.send_command.get(id){
+            if let Err(e) = sender.send(DroneCommand::SetPacketDropRate(new_pdr)){
+                eprintln!("Controller: The DroneCommand SetPacketDropRate to the drone with id = {} hasn't been sent correctly", id);
+            }
+        }
     }
 
     fn is_drone (&mut self, id: &NodeId) -> bool {
