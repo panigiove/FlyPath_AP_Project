@@ -6,9 +6,11 @@ use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
 
-use crate::
+use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::{
+    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
+};
 
-use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
 use rand::Rng;
@@ -43,34 +45,41 @@ pub struct Controller{
     pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
     pub ui_reciver: Receiver<UIcommand>, //TODO cosa invia controller a sender
     pub ui_sender: Sender<UIcommand>
+    pub counter: i8,
 }
 
 //initializes the drones, distributing the implementations bought from the other groups(impl)
 // as evenly as possible, having at most a difference of 1 between the group with the most drones
 // running and the one with the least:
 //TODO funzione per decidere che drone creare
-pub fn drone_random(id: NodeId,
-                    sender_event: Sender<DroneEvent>,
-                    receiver_command: Receiver<DroneCommand>,
-                    receiver_packet: Receiver<DroneCommand>,
-                    packet_sender: HashMap<NodeId, Sender<Packet>>) -> Option<Box<dyn Drone>> {
-    let mut rng = rand::thread_rng();
-    let rand = rng.gen_range(1..11);
-    let drop_rate = rng.gen_range(0.0 .. 1.1);
-    match rand{
-        1 => Box::new(NoSoundDroneRIP::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        2 => Box::new(BagelBomber::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        3 => Box::new(LockheedRustin::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        4 => Box::new(RollingDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        5 => Box::new(RustDoIt::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        6 => Box::new(RustRoveri::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        7 => Box::new(RustasticDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        8 => Box::new(RustBustersDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        9 => Box::new(LeDronJames_drone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        10 => Box::new(RustyDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
-        _ => None,
-    }
+
+pub fn chose_the_drone(){
+
 }
+// pub fn drone_random(id: NodeId,
+//                     sender_event: Sender<DroneEvent>,
+//                     receiver_command: Receiver<DroneCommand>,
+//                     receiver_packet: Receiver<DroneCommand>,
+//                     packet_sender: HashMap<NodeId, Sender<Packet>>) -> Option<Box<dyn Drone>> {
+//     let mut rng = rand::thread_rng();
+//     let rand = rng.gen_range(1..11);
+//     let drop_rate = rng.gen_range(0.0 .. 1.1);
+//     match rand{
+//         1 => Box::new(NoSoundDroneRIP::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         2 => Box::new(BagelBomber::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         3 => Box::new(LockheedRustin::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         4 => Box::new(RollingDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         5 => Box::new(RustDoIt::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         6 => Box::new(RustRoveri::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         7 => Box::new(RustasticDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         8 => Box::new(RustBustersDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         9 => Box::new(LeDronJames_drone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         10 => Box::new(RustyDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate)),
+//         _ => None,
+//     }
+// }
+
+
 
 impl Controller{
 
@@ -94,29 +103,31 @@ impl Controller{
             send_packet_server,
             send_packet_client,
             ui_comunication: ui_reciver,
+            1,
         }
     }
 
+    //TODO complete run
     pub fn run(&mut self){
         loop{
-            // select_biased!{
-            //     recv(self.ui_comunication) -> command =>{
-            //         if let Ok(command) = interaction{
-            //             self.ui_command_handler(command);
-            //         }
-            //     }
-            //     default => {
-            //         for (_, i) in self.recive_event{
-            //             select! {
-            //                 recv(i) -> event =>{
-            //                     if let Ok(event) = event{
-            //                         self.event_handler(event);
-            //                     }
-            //                 }
-            //         }
-            //         }
-            //     }
-            // }
+            select_biased!{
+                recv(self.ui_comunication) -> command =>{
+                    if let Ok(command) = interaction{
+                        self.ui_command_handler(command); //TODO completare una voltaa fatta la UI
+                    }
+                }
+                default => {
+                    for (_, i) in self.recive_event{
+                        select! {
+                            recv(i) -> event =>{
+                                if let Ok(event) = event{
+                                    self.event_handler(event);
+                                }
+                            }
+                    }
+                    }
+                }
+            }
             if let Ok(command) = self.ui_reciver.try_recv() {
                 self.ui_command_handler(command);
                 continue;
@@ -130,6 +141,56 @@ impl Controller{
 
             // Piccola pausa per evitare un ciclo troppo intenso
             std::thread::yield_now();
+        }
+    }
+
+    pub fn new_drone_balanced(&mut self, id: NodeId,
+                              sender_event: Sender<DroneEvent>,
+                              receiver_command: Receiver<DroneCommand>,
+                              receiver_packet: Receiver<DroneCommand>,
+                              packet_sender: HashMap<NodeId, Sender<Packet>>) -> Option<Box<dyn Drone>> {
+        match self.counter {
+            1 => {
+                Box::new(NoSoundDroneRIP::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 2;
+            },
+            2 => {
+                Box::new(BagelBomber::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 3;
+            },
+            3 => {
+                Box::new(LockheedRustin::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 4;
+            },
+            4 => {
+                Box::new(RollingDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 5;
+            },
+            5 => {
+                Box::new(RustDoIt::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 6;
+            },
+            6 => {
+                Box::new(RustRoveri::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 7;
+            },
+            7 => {
+                Box::new(RustasticDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 8;
+            },
+            8 => {
+                Box::new(RustBustersDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 9;
+            },
+            9 => {
+                Box::new(LeDronJames_drone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 10;
+            },
+            10 => {
+                Box::new(RustyDrone::new(id, sender_event, receiver_command,receiver_packet,packet_sender,drop_rate));
+                self.counter = 1;
+            },
+            _ => None,
         }
     }
 
@@ -148,16 +209,17 @@ impl Controller{
         match event{
             DroneEvent::PacketSent(packet) => self.notify_packet_sent(),
             DroneEvent::PacketDropped(packet) => self.notify_packet_dropped(packet),
-            DroneEvent::ControllerShortcut(packet) => self.send_packet(packet),
+            DroneEvent::ControllerShortcut(packet) => self.send_packet(packet), //da drone a server/client
             _ => None,
         }
     }
 
+    // TODO sistemare questa funzione: il controller si occupa di mandare macchetti che non possono essere persi a client/server
     pub fn send_packet(&self, packet: Packet){
         let hops = packet.routing_header.hops.clone();
         let destination = hops.pop();
         match destination{
-            Ok(id) => self.send_packet_client.get(id).unwrap().send(packet).unwrap(), //pacchetti sempre da server a client?
+            Ok(id) => self.send_packet_client.get(id).unwrap().send(packet).unwrap(),
             _ => None
         }
     }
