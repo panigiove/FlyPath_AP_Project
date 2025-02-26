@@ -1,5 +1,6 @@
 mod controller_test;
 mod utility;
+mod ui;
 
 use std::ascii::Char::Null;
 use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
@@ -210,18 +211,28 @@ impl Controller{
             DroneEvent::PacketSent(packet) => self.notify_packet_sent(),
             DroneEvent::PacketDropped(packet) => self.notify_packet_dropped(packet),
             DroneEvent::ControllerShortcut(packet) => self.send_packet(packet), //da drone a server/client
-            _ => None,
         }
     }
 
     // TODO sistemare questa funzione: il controller si occupa di mandare macchetti che non possono essere persi a client/server
-    pub fn send_packet(&self, packet: Packet){
-        let hops = packet.routing_header.hops.clone();
-        let destination = hops.pop();
-        match destination{
-            Ok(id) => self.send_packet_client.get(id).unwrap().send(packet).unwrap(),
-            _ => None
+    pub fn send_packet(&self, packet: Packet) -> Result<(), Err()>{
+        let mut hops = packet.routing_header.hops.clone();
+        if let Some(destination) = hops.pop(){
+            if let Some(sender) = self.send_packet_client.get(&destination){
+                sender.send(packet).map_err(|_| Err(()))?; //abbiamo modificato il tipo di errore
+                return Ok(());
+            }
+            else if let Some(sender) = self.send_packet_server.get(&destination){
+                sender.send(packet).map_err(|_| Err(()))?;
+                return Ok(());
+            }
         }
+        Err(())
+        // let destination = hops.pop();
+        // match destination{
+        //     Ok(id) => self.send_packet_client.get(id).unwrap().send(packet).unwrap(),
+        //     _ => None
+        // }
     }
 
     pub fn notify_packet_sent(&self, packet: Packet){
