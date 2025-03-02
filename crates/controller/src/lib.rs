@@ -2,15 +2,12 @@ mod controller_test;
 mod utility;
 mod ui;
 
-use std::ascii::Char::Null;
 use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
 
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{
-    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
-};
+
 
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
@@ -39,13 +36,13 @@ pub struct Controller{
     pub clients: HashMap<NodeId, Box<dyn Client>>,
     pub servers: HashMap<NodeId, Box<dyn Server>>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
-    pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
-    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
-    pub recive_event: HashMap<NodeId, Receiver<DroneEvent>>, //
+    pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>, // da controller a drone
+    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // ???
+    pub recive_event: HashMap<NodeId, Receiver<DroneEvent>>, // da dorne a controller
     pub send_packet_server: HashMap<NodeId, Sender<Packet>>, //canali diversi per client e server vedi nodeCommand
     pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
     pub ui_reciver: Receiver<UIcommand>, //TODO cosa invia controller a sender
-    pub ui_sender: Sender<UIcommand>
+    pub ui_sender: Sender<UIcommand>,
     pub counter: i8,
 }
 
@@ -219,7 +216,7 @@ impl Controller{
         let mut hops = packet.routing_header.hops.clone();
         if let Some(destination) = hops.pop(){
             if let Some(sender) = self.send_packet_client.get(&destination){
-                sender.send(packet).map_err(|_| Err(()))?; //abbiamo modificato il tipo di errore
+                sender.send(packet).map_err(|_| Err(()))?; //abbiamo modificato il tipo di errorezZ
                 return Ok(());
             }
             else if let Some(sender) = self.send_packet_server.get(&destination){
