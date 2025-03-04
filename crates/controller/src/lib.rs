@@ -1,6 +1,6 @@
 mod controller_test;
 mod utility;
-mod ui;
+use message::{NodeCommand};
 
 use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
@@ -27,21 +27,22 @@ use rustastic_drone::RustasticDrone;
 use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
+use wg_2024::config::Server;
 use wg_2024::drone::Drone;
 use crate::utility::Operation::{AddSender, RemoveSender};
 
 #[derive(Debug, Clone)]
 pub struct Controller{
     pub drones: HashMap<NodeId, Box<dyn Drone>>,
-    pub clients: HashMap<NodeId, Box<dyn Client>>,
+    pub clients: HashMap<NodeId, Box<dyn Client>>, //devo importare robe di daniele
     pub servers: HashMap<NodeId, Box<dyn Server>>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>, // da controller a drone
-    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // ???
-    pub recive_event: HashMap<NodeId, Receiver<DroneEvent>>, // da dorne a controller
+    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // da client a controller (anche server?) TODO io non avevo il reciver?
+    pub receive_event: HashMap<NodeId, Receiver<DroneEvent>>, // da dorne a controller
     pub send_packet_server: HashMap<NodeId, Sender<Packet>>, //canali diversi per client e server vedi nodeCommand
     pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
-    pub ui_reciver: Receiver<UIcommand>, //TODO cosa invia controller a sender
+    pub ui_receiver: Receiver<UIcommand>, //TODO cosa invia controller a sender
     pub ui_sender: Sender<UIcommand>,
     pub counter: i8,
 }
@@ -85,7 +86,9 @@ impl Controller{
         drones: HashMap<NodeId, Box<dyn Drone>>,
         clients: HashMap<NodeId, Box<dyn Client>>,
         servers: HashMap<NodeId, Box<dyn Server>>,
-        send_command: HashMap<NodeId, Sender<DroneCommand>>,
+        connections: HashMap<NodeId, Vec<NodeId>>,
+        send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
+        send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
         recive_event: HashMap<NodeId, Receiver<DroneEvent>>,
         send_packet_server: HashMap<NodeId, Sender<Packet>>,
         send_packet_client: HashMap<NodeId, Sender<Packet>>,
@@ -96,12 +99,15 @@ impl Controller{
             drones,
             clients,
             servers,
-            send_command,
-            recive_event,
+            connections,
+            send_command_drone,
+            send_command_node,
+            receive_event: recive_event,
             send_packet_server,
             send_packet_client,
-            ui_comunication: ui_reciver,
-            1,
+            ui_receiver: ui_reciver,
+            ui_sender,
+            counter: 1,
         }
     }
 
@@ -109,29 +115,25 @@ impl Controller{
     pub fn run(&mut self){
         loop{
             select_biased!{
-                recv(self.ui_comunication) -> command =>{
-                    if let Ok(command) = interaction{
-                        self.ui_command_handler(command); //TODO completare una voltaa fatta la UI
+                recv(self.ui_receiver) -> command =>{
+                    if let Ok(command) = command{
+                        self.ui_command_handler(command); //TODO completare una volta fatta la UI
                     }
                 }
                 default => {
-                    for (_, i) in self.recive_event{
-                        select! {
-                            recv(i) -> event =>{
-                                if let Ok(event) = event{
-                                    self.event_handler(event);
-                                }
-                            }
-                    }
+                    for (_, reciver) in &self.receive_event{
+                        if let Ok(event) = reciver.try_recv(){
+                            self.event_handler(event);
+                        }
                     }
                 }
             }
-            if let Ok(command) = self.ui_reciver.try_recv() {
+            if let Ok(command) = self.ui_receiver.try_recv() {
                 self.ui_command_handler(command);
                 continue;
             }
 
-            for (_, i) in &self.recive_event {
+            for (_, i) in &self.receive_event {
                 if let Ok(event) = i.try_recv() {
                     self.event_handler(event);
                 }
@@ -311,7 +313,7 @@ impl Controller{
     //sends also a remove sender to its neighbours
     //TODO capire quando far rimuovere il drone dalle connection del controller
     pub fn remove_drone(&mut self, id: &NodeId){
-        if let Some(sender) = self.send_command.get(id){
+        if let Some(sender) = self.send_command_drone.get(id){
             if let Err(e) = sender.send(DroneCommand::Crash){
                 eprintln!("Controller: Node with id = {} doesen't recive correctly the DroneCommand", id);
             }
@@ -328,8 +330,8 @@ impl Controller{
 
         self.drones.insert(*id, drone); //insieriamo il drone nell'elenco
 
-        self.send_command.insert(*id, sender_command);
-        self.recive_event.insert(*id, receiver_event);
+        self.send_command_drone.insert(*id, sender_command);
+        self.receive_event.insert(*id, receiver_event);
 
     }
 
@@ -338,28 +340,33 @@ impl Controller{
 
     //close the channel with all neighbours of a drone
     fn remove_all_senders(&mut self, id: &NodeId){
-        let (_, drone) = self.drones.get_key_value(&id).unwrap(); //SISTEMARE
-        for i in drone.connected_node_ids{
-            //per ora contiamo solo come se fossero tutti droni
-            //TODO per client e server
-            self.close_sender(id, &i);
-            //ci pensa il drone ad aggiornare le connessioni?
+        if let Some(drone) = self.connections.get(id){
+            for i in drone{
+                self.close_sender(id, i);
+            }
         }
+        //TODO per client e server
+        //ci pensa il drone ad aggiornare le connessioni?
     }
 
     //close the channel with a neighbour drone
     fn close_sender(&mut self, id: &NodeId, nghb_id: &NodeId){
-        if let Some(sender) = self.send_command.get(id){
+        if let Some(sender) = self.send_command_drone.get(id){
             if let Err(e) = sender.send(DroneCommand::RemoveSender(*nghb_id)){
                 eprintln!("Controller: The DroneCommand RemoveSender to the drone with id = {} hasn't been sent correctly", id);
+            }
+        }
+        if let Some(sender) = self.send_command_node.get(id){
+            if let Err(e) = sender.send(NodeCommand::RemoveSender(*nghb_id)){
+                eprintln!("Controller: The DroneCommand RemoveSender to the node with id = {} hasn't been sent correctly", id);
             }
         }
     }
 
     //adds dst_id to the drone neighbors (with dst_id crossbeam::Sender)
     fn new_sender(&mut self, id: &NodeId, dst_id: &NodeId, sender: Sender<Packet>){
-        if let Some(sender) = self.send_command.get(id){
-            if let Err(e) = sender.send(DroneCommand::AddSender(*dst_id, sender)){
+        if let Some(s) = self.send_command_drone.get(id){
+            if let Err(e) = s.send(DroneCommand::AddSender(*dst_id, sender)){
                 eprintln!("Controller: The DroneCommand AddSender to the drone with id = {} hasn't been sent correctly", id);
             }
         }
@@ -369,11 +376,11 @@ impl Controller{
 
     //alter the pdr of a drone
     fn set_packet_drop_rate(&mut self, id:&NodeId, new_pdr: f32){
-        if !self.is_drone(dst_id){
+        if !self.is_drone(id){
             eprintln!("Controller: Node with id = {} can't be added as a new sender cause it isn't a drone", dst_id);
             return;
         }
-        if let Some(sender) = self.send_command.get(id){
+        if let Some(sender) = self.send_command_drone.get(id){
             if let Err(e) = sender.send(DroneCommand::SetPacketDropRate(new_pdr)){
                 eprintln!("Controller: The DroneCommand SetPacketDropRate to the drone with id = {} hasn't been sent correctly", id);
             }
