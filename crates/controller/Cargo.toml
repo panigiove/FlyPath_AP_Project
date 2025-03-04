@@ -7,6 +7,7 @@ edition = "2021"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 crossbeam-channel = "0.5.13"
 rand = "0.8"
+eframe = "0.26"
 
 lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
 rustbusters-drone = {git = "https://github.com/Rustbusters/drone.git" }
@@ -23,3 +24,5 @@ rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
 rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
 rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
 flyPath = { git = "https://github.com/panigiove/FlyPath.git" }
+
+message = { path = "../message" }
