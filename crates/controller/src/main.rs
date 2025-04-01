@@ -1,63 +1,64 @@
-mod utility;
+use eframe::{run_native, App, CreationContext};
+use egui::{Context, containers::Window};
+use egui_graphs::{Graph, GraphView, LayoutRandom, LayoutStateRandom};
+use petgraph::{
+    stable_graph::{StableGraph, StableUnGraph},
+    Undirected,
+};
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::egui;
-use std::thread;
-use utility::UIcommand;
+pub struct View{
 
-struct MyApp {
-    sender: Sender<UIcommand>,
-    receiver: Receiver<String>,
-    input_text: String,
-    received_text: String,
 }
 
-impl MyApp {
-    fn new(sender: Sender<UIcommand>, receiver: Receiver<String>) -> Self {
-        Self {
-            sender,
-            receiver,
-            input_text: String::new(),
-            received_text: String::new(),
-        }
+pub struct WindowGraph {
+    g: Graph<(), (), Undirected>,
+}
+
+impl WindowGraph {
+    fn new(_: &CreationContext<'_>) -> Self {
+        let g = generate_graph();
+        Self { g: Graph::from(&g) }
     }
 }
 
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Comunicazione tra egui e Crossbeam");
-            ui.text_edit_singleline(&mut self.input_text);
-            if ui.button("Invia").clicked() {
-                //self.sender.send(self.input_text.clone()).unwrap();
-                self.input_text.clear();
-            }
-            if let Ok(message) = self.receiver.try_recv() {
-                self.received_text = message;
-            }
-            ui.label(format!("Messaggio ricevuto: {}", self.received_text));
+impl App for WindowGraph {
+    fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
+        Window::new("graph").show(ctx, |ui| {
+            ui.add(&mut GraphView::<
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                LayoutStateRandom,
+                LayoutRandom,
+            >::new(&mut self.g));
         });
     }
 }
 
-fn main() -> Result<(), eframe::Error> {
-    let (ui_sender, ui_receiver) = unbounded();
-    let (bg_sender, bg_receiver) = unbounded();
+fn generate_graph() -> StableGraph<(), (), Undirected> {
+    let mut g = StableUnGraph::default();
 
-    // Thread in background che invia messaggi all'interfaccia utente
-    thread::spawn(move || {
-        loop {
-            if let Ok(message) = bg_receiver.recv() {
-                // println!("Thread in background ha ricevuto: {}", message);
-                // ui_sender.send(format!("Elaborato: {}", message)).unwrap();
-            }
-        }
-    });
+    let a = g.add_node(());
+    let b = g.add_node(());
+    let c = g.add_node(());
 
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "App con egui e Crossbeam",
-        options,
-        Box::new(|_cc| Box::new(MyApp::new(bg_sender, ui_receiver))),
+    g.add_edge(a, b, ());
+    g.add_edge(a, b, ());
+    g.add_edge(b, c, ());
+    g.add_edge(c, a, ());
+
+    g
+}
+
+fn main() {
+    let native_options = eframe::NativeOptions::default();
+    run_native(
+        "egui_graphs_undirected_demo",
+        native_options,
+        Box::new(|cc| Ok(Box::new(WindowGraph::new(cc)))),
     )
+        .unwrap();
 }
