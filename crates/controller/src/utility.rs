@@ -1,6 +1,7 @@
 use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
+use std::ptr::NonNull;
 use wg_2024::config::{Client, Drone, Server};
 use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
@@ -21,4 +22,25 @@ pub enum Operation{
     RemoveDrone,
     AddSender,
     RemoveSender
+}
+
+pub enum NodeType{
+    Drone,
+    Server,
+    Client
+}
+
+pub enum GraphAction {
+    AddNode(NodeId, NodeType),
+    RemoveNode(NodeId),
+    AddEdge(NodeId, NodeId),
+    RemoveEdge(NodeId,NodeId)
+}
+
+pub enum Button{
+    NewNode(),
+    NewConnection(NodeId, NodeId),
+    Crash(NodeId),
+    DeleteConection(),
+    ChangePdr(NodeId, f32),
 }
