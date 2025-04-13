@@ -37,11 +37,11 @@ pub enum GraphAction {
     RemoveEdge(NodeId,NodeId)
 }
 
-pub enum Button{
+pub enum ButtonEvent{
     NewNode(),
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
-    DeleteConection(),
+    RemoveConection(),
     ChangePdr(NodeId, f32),
 }
 
