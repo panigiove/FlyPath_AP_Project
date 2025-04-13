@@ -44,3 +44,8 @@ pub enum Button{
     DeleteConection(),
     ChangePdr(NodeId, f32),
 }
+
+pub enum ButtonsMessages{
+    DeselectNode(NodeId), //dopo che abbiamo fatto un'operazione deselezioniamo il nodo
+    MultipleSelectionAllowed //per quando diciamo di voler aggiungere un edge
+}
