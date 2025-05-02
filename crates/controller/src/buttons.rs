@@ -4,15 +4,17 @@ use eframe::App;
 use egui::Context;
 use wg_2024::network::NodeId;
 use crate::utility::{ButtonEvent, ButtonsMessages};
+use crate::utility::ButtonEvent::{ChangePdr, Crash, NewDrone};
 
 struct ButtonWindow{
     pub reciver_node_clicked: Receiver<NodeId>, //riceve dal grafo il nodo che è stato premuto
     pub sender_button_event: Sender<ButtonEvent>, //invia al controller le azioni da fare
     pub sender_buttom_messages: Sender<ButtonsMessages>, // dice al grafo quando deve deselezionare un nodo e quando ne può selezionare più di uno
     //these two are the nodes that are selected at the exact instant we are working
-    pub node_id1: Option<NodeId>, //entrambi inisializzati a None
+    pub node_id1: Option<NodeId>, //entrambi inisializzati a None quando azione fatta dinuovo a none
     pub node_id2:Option<NodeId>,
     pub is_multiple_selection_allowed: bool //inizializzato a false
+    pub pdr_change: Option<f32>, //inizializza a none, quando cambio fatto dinuovo a none
 }
 
 impl Default for ButtonWindow {
@@ -28,26 +30,26 @@ impl App for ButtonWindow{
 
 
             // Visualizza il contatore
-            ui.label(format!("Clic totali: {}", self.counter));
+            //ui.label(format!("Clic totali: {}", self.counter));
 
             if ui.button("Add a new drone").clicked() {
-                //TODO
+                self.new_drone();
             }
 
             if ui.button("Add a new connection with ...").clicked() {
-                //TODO
+                self.add_new_connection();
             }
 
             if ui.button("Remove the connection with ...").clicked() {
-                //TODO
+                self.remove_connection();
             }
 
             if ui.button("Change the packet drop rate").clicked() {
-                //TODO
+                self.change_pdr();
             }
 
             if ui.button("Let the drone crash").clicked() {
-                //TODO
+                self.let_drone_crash();
             }
 
             // Pulsante con stile personalizzato
@@ -117,5 +119,34 @@ impl ButtonWindow{
         // if self.node_id1.is_none(){
         //     self.node_id1 = Some(node_id);
         // }
+    }
+
+    pub fn new_drone(&mut self){
+        self.sender_button_event.send(NewDrone());  //TODO vedere come gestire
+        //deselezionare bottone?
+    }
+
+    pub fn add_new_connection(&mut self){
+        self.is_multiple_selection_allowed = true;
+        //magari togliamo gli altri pulsanti finchè non usciamo o scegliamo l'altro nodo
+    }
+
+    pub fn remove_connection(&mut self){
+        self.is_multiple_selection_allowed = true;
+    }
+
+    pub fn change_pdr(&mut self){
+        if let Some(node) = self.node_id1{
+            //TODO capire quando l'utente inserisce pdr nuovo -> devo far comparire una finestra per l'interimento
+            if let Some(new_pdr) = self.pdr_change{
+                self.sender_button_event.send(ChangePdr(node, new_pdr)); //vedere cosa fare con il result
+            }
+        }
+    }
+
+    pub fn let_drone_crash(&self){
+        if let Some(node) = self.node_id1{
+            self.sender_button_event.send(Crash(node)); //capire cosa fare con il resutl
+        }
     }
 }
