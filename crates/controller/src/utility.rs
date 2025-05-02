@@ -38,14 +38,20 @@ pub enum GraphAction {
 }
 
 pub enum ButtonEvent{
-    NewNode(),
+    NewDrone(NodeId), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
-    RemoveConection(),
+    RemoveConection(NodeId, NodeId),
     ChangePdr(NodeId, f32),
 }
 
 pub enum ButtonsMessages{
     DeselectNode(NodeId), //dopo che abbiamo fatto un'operazione deselezioniamo il nodo
     MultipleSelectionAllowed //per quando diciamo di voler aggiungere un edge
+}
+
+pub enum MessageType{
+    Error(String),
+    Ok(String),
+    //TODO vedere se aggiungere un tipo di messaggi per il drone
 }

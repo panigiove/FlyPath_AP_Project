@@ -21,7 +21,7 @@ use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
 use crate::utility::{GraphAction, NodeType, ButtonsMessages};
 
-pub struct WindowGraph {
+pub struct GraphWindow {
     pub graph: Graph<(), (), Undirected>,
     pub connections: HashMap<NodeId, Vec<NodeId>>,
     pub node_type: HashMap<NodeId, NodeType>,
@@ -65,7 +65,7 @@ pub struct WindowGraph {
 
 }
 
-impl App for WindowGraph {
+impl App for GraphWindow {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
 
 
@@ -113,7 +113,7 @@ impl App for WindowGraph {
     }
 }
 
-impl WindowGraph {
+impl GraphWindow {
     fn new(_: &CreationContext<'_>,
            connections: HashMap<NodeId, Vec<NodeId>>,
            node_type: HashMap<NodeId, NodeType>,
