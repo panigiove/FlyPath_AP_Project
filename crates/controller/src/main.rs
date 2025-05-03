@@ -1,3 +1,5 @@
+mod controller_handler;
+
 use eframe::{run_native, App, CreationContext};
 use egui::{Context, containers::Window};
 use egui_graphs::{Graph, GraphView, LayoutRandom, LayoutStateRandom};

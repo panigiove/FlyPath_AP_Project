@@ -18,6 +18,7 @@ use rand::Rng;
 use std::cmp;
 use std::ops::Deref;
 use std::process::id;
+use std::sync::mpmc::channel;
 use utility::UIcommand;
 use utility::Operation;
 use ap2024_rustinpeace_nosounddrone::NoSoundDroneRIP;
@@ -234,7 +235,7 @@ impl ControllerHandler {
 
     pub fn button_event_handler(&mut self, event: ButtonEvent) {
         match event {
-            ButtonEvent::NewDrone(id) => {
+            ButtonEvent::NewDrone(id, pdr) => {
                 //TODO inviare aggiornamento a grafo
             }
             ButtonEvent::NewConnection(id1, id2) => {
@@ -318,22 +319,36 @@ impl ControllerHandler {
     }
 
 
-pub fn add_new_drone(&mut self, first_connection: &NodeId) {
+pub fn add_new_drone(&mut self, first_connection: &NodeId, pdr: f32) -> (drone, sender_packet, connections, sender_drone_command, reciver_event) {
     let mut connections = vec![*first_connection];
-    if let id = Some(get_random_key(&self.drones)){
-        //TODO creare i campi insetiti dentro al new drone
-    }
-        if let drone = Some(self.new_drone_balanced(id, sender_event, reciver_drone_command, reciver_packet, sender_packet, pdr)){
+    if let id = Some(get_random_key(&self.drones)) {
 
+        let (sender_event, reciver_event) = channel::unbounded::<DroneEvent>();
+        let (sender_drone_command, reciver_drone_command) = channel::unbounded::<DroneCommand>();
+        let (sender_packet, reciver_packet) = channel::unbounded::<Packet>();
+
+        if let drone = Some(self.new_drone_balanced(id, sender_event, reciver_drone_command, reciver_packet, sender_packet, pdr)) {
+            self.drones.insert(id, drone);
+            self.drone_senders.insert(id, sender_packet);
+            self.connections.insert(id, connections);
+            self.send_command_drone.insert(id, sender_drone_command);
+            self.receive_event.insert(id, reciver_event);
+            //sistemare le questioni dei canali
+            //mandare messaggio a grafo
+            //sistemare il drone nell'insieme
+            //mandare messaggio a message window per corretta creazioene
         }
+    }
+
+}
 
     //adds a new dorne to the network
-    pub fn spawn(&mut self, id: &NodeId, connections: &Vec<NodeId>, drone: Box<dyn Drone>) {
+    pub fn spawn(&mut self, id: &NodeId, connections: &NodeId) -> Result<> {
         if !self.check_network_before_add_drone(id, connections) {
             eprintln!("Controller: Drone with id = {} can't be added to the network due to a violation of the network requirement", id);
             return;
         }
-        self.add_drone(id, connections);
+        self.add_new_drone(id, connections);
     }
 
     pub fn crash(&mut self, id: &NodeId) {

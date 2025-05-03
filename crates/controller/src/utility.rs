@@ -38,7 +38,7 @@ pub enum GraphAction {
 }
 
 pub enum ButtonEvent{
-    NewDrone(NodeId), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
+    NewDrone(NodeId, pdr), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
     RemoveConection(NodeId, NodeId),
