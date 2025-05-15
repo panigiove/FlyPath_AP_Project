@@ -1,22 +1,88 @@
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
+use thiserror::Error;
 use wg_2024::config::Config;
 use wg_2024::network::NodeId;
 
-pub fn start(path: &str) -> Result<(), &'static str> {
-    let config: Config = parse_config(path)?;
-    if !is_connected(&config) {
-        Err("Invalid Graph: node not strongly connected")
-    } else {
-        // TODO: implement the rest
-        Ok(())
-    }
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("I/O error reading file: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("TOML parsing error: {0}")]
+    Toml(#[from] toml::de::Error),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
-fn parse_config(path: &str) -> Result<Config, &'static str> {
-    let config_data = fs::read_to_string(path).map_err(|_| "Unable to read config file")?;
-    let config: Config = toml::from_str(&config_data).map_err(|_| "Unable to parse config file")?;
-    Ok(config)
+pub fn parse_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigError> {
+    let content = fs::read_to_string(path)?;
+    let cfg: Config = toml::from_str(&content)?;
+    validate(&cfg)?;
+    Ok(cfg)
+}
+
+fn validate(cfg: &Config) -> Result<(), ConfigError> {
+    let mut ids = HashSet::new();
+
+    // 1) Unicità degli ID tra tutte le entità
+    for drone in &cfg.drone {
+        if !ids.insert(&drone.id) {
+            return Err(ConfigError::Validation(format!(
+                "ID duplicato trovato: '{}'",
+                drone.id
+            )));
+        }
+    }
+    for client in &cfg.client {
+        if !ids.insert(&client.id) {
+            return Err(ConfigError::Validation(format!(
+                "ID duplicato trovato: '{}'",
+                client.id
+            )));
+        }
+        // 2) Controllo numero max di collegamenti
+        if client.connected_drone_ids.len() > 2 {
+            return Err(ConfigError::Validation(format!(
+                "Il client '{}' ha più di 2 droni connessi: {}",
+                client.id,
+                client.connected_drone_ids.len()
+            )));
+        }
+    }
+    for server in &cfg.server {
+        if !ids.insert(&server.id) {
+            return Err(ConfigError::Validation(format!(
+                "ID duplicato trovato: '{}'",
+                server.id
+            )));
+        }
+        // 3) Controllo numero minimo di collegamenti
+        if server.connected_drone_ids.len() < 2 {
+            return Err(ConfigError::Validation(format!(
+                "Il server '{}' ha meno di 2 droni connessi: {}",
+                server.id,
+                server.connected_drone_ids.len()
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn start() {
+    match parse_config("config.toml") {
+        Ok(cfg) => {
+            println!("Configurazione valida: {:#?}", cfg);
+        }
+        Err(e) => {
+            eprintln!("Errore nella configurazione: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn is_connected(config: &Config) -> bool {

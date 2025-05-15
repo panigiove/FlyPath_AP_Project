@@ -968,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_send_content_success() {
-        let (mut worker, _, drone1_receiver , _, controller_recv, _, _, ui_receiver) =
+        let (mut worker, _, drone1_receiver, _, controller_recv, _, _, ui_receiver) =
             create_worker();
 
         worker.adj_list.extend([
@@ -1332,9 +1332,9 @@ mod tests {
     }
 
     #[test]
-    fn test_nack_dropped_handler(){
+    fn test_nack_dropped_handler() {
         let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
-        create_worker();
+            create_worker();
 
         worker.adj_list.extend([
             (10, HashMap::from([(1, 1), (2, 1)])),
@@ -1352,25 +1352,62 @@ mod tests {
             (11, NodeType::Server),
             (12, NodeType::Server),
         ]);
-        worker.sent_message_wrappers.insert(0, SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()));
+        worker.sent_message_wrappers.insert(
+            0,
+            SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()),
+        );
 
-        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::Dropped }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 11], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
+        worker.nack_handler(
+            &Nack {
+                fragment_index: 0,
+                nack_type: NackType::Dropped,
+            },
+            &Packet::new_fragment(
+                SourceRoutingHeader::new(vec![10, 1, 11], 1),
+                0,
+                worker
+                    .sent_message_wrappers
+                    .get(&0)
+                    .unwrap()
+                    .get_fragment(0)
+                    .unwrap(),
+            ),
+        );
         node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
         assert_eq!(worker.adj_list.get(&10).unwrap().get(&1), Some(&2));
         assert_eq!(worker.adj_list.get(&1).unwrap().get(&10), Some(&2));
 
-        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::Dropped }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 20], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
-        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker.nack_handler(
+            &Nack {
+                fragment_index: 0,
+                nack_type: NackType::Dropped,
+            },
+            &Packet::new_fragment(
+                SourceRoutingHeader::new(vec![10, 1, 20], 1),
+                0,
+                worker
+                    .sent_message_wrappers
+                    .get(&0)
+                    .unwrap()
+                    .get_fragment(0)
+                    .unwrap(),
+            ),
+        );
+        controller_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
         assert_eq!(worker.adj_list.get(&10).unwrap().get(&1), Some(&3));
         assert_eq!(worker.adj_list.get(&1).unwrap().get(&10), Some(&3));
         assert!(!worker.buffer.is_empty());
     }
 
     #[test]
-    fn test_nack_other_handler(){
+    fn test_nack_other_handler() {
         let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
-        create_worker();
+            create_worker();
 
         worker.adj_list.extend([
             (10, HashMap::from([(1, 1), (2, 1)])),
@@ -1388,16 +1425,34 @@ mod tests {
             (11, NodeType::Server),
             (12, NodeType::Server),
         ]);
-        worker.sent_message_wrappers.insert(0, SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()));
-        worker.nack_handler(&Nack { fragment_index: 0, nack_type: NackType::ErrorInRouting(8) }, &Packet::new_fragment(SourceRoutingHeader::new(vec![10, 1, 8, 11], 1), 0, worker.sent_message_wrappers.get(&0).unwrap().get_fragment(0).unwrap()));
+        worker.sent_message_wrappers.insert(
+            0,
+            SentMessageWrapper::new_from_raw_data(0, 11, "Test".to_string()),
+        );
+        worker.nack_handler(
+            &Nack {
+                fragment_index: 0,
+                nack_type: NackType::ErrorInRouting(8),
+            },
+            &Packet::new_fragment(
+                SourceRoutingHeader::new(vec![10, 1, 8, 11], 1),
+                0,
+                worker
+                    .sent_message_wrappers
+                    .get(&0)
+                    .unwrap()
+                    .get_fragment(0)
+                    .unwrap(),
+            ),
+        );
 
         assert!(!worker.buffer.is_empty())
     }
 
     #[test]
-    fn test_fragment_handler_invalid_message(){
+    fn test_fragment_handler_invalid_message() {
         let (mut worker, _, node1_receiver, node2_receiver, controller_receiver, _, _, ui_receiver) =
-        create_worker();
+            create_worker();
 
         worker.adj_list.extend([
             (10, HashMap::from([(1, 1), (2, 1)])),
@@ -1417,15 +1472,32 @@ mod tests {
         ]);
         let fragment_wrapper = SentMessageWrapper::new_from_raw_data(0, 10, "TestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTestTest".to_string());
 
-        worker.fragment_handler(&fragment_wrapper.get_fragment(0).unwrap(), &Packet::new_fragment(SourceRoutingHeader::new(vec![11,1,10], 2), 0, fragment_wrapper.get_fragment(0).unwrap()));
+        worker.fragment_handler(
+            &fragment_wrapper.get_fragment(0).unwrap(),
+            &Packet::new_fragment(
+                SourceRoutingHeader::new(vec![11, 1, 10], 2),
+                0,
+                fragment_wrapper.get_fragment(0).unwrap(),
+            ),
+        );
         node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
 
-        worker.fragment_handler(&fragment_wrapper.get_fragment(1).unwrap(), &Packet::new_fragment(SourceRoutingHeader::new(vec![11,1,10], 2), 0, fragment_wrapper.get_fragment(1).unwrap()));
+        worker.fragment_handler(
+            &fragment_wrapper.get_fragment(1).unwrap(),
+            &Packet::new_fragment(
+                SourceRoutingHeader::new(vec![11, 1, 10], 2),
+                0,
+                fragment_wrapper.get_fragment(1).unwrap(),
+            ),
+        );
         node1_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        controller_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        controller_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
         let uimesg = ui_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-
     }
 
     fn create_worker() -> (
