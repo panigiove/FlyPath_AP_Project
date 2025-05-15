@@ -1,10 +1,11 @@
 use crossbeam_channel::select_biased;
 use crossbeam_channel::{Receiver, Sender};
 use message::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::f64::MAX;
 use wg_2024::network::*;
+use wg_2024::packet::NodeType::{Client, Server};
 use wg_2024::packet::{FloodRequest, NackType, NodeType, Packet, PacketType};
-
 /*pub trait Server {
     type RequestType: Request;
     type ResponseType: Response;
@@ -55,7 +56,7 @@ pub struct ChatServer {
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub last_session_id: u64,
 
-    pub topology: Vec<(Vec<NodeId>, f64, f64)>,
+    pub topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
     //da rivedere
     pub incoming_fragments: HashMap<u64, VecDeque<Packet>>,
     pub outgoing_fragments: HashMap<u64, VecDeque<Packet>>,
@@ -76,7 +77,9 @@ impl ChatServer {
             packet_recv,
             packet_send,
             last_session_id: 0,
-            topology: vec![],
+            topology: HashMap::new(),
+            incoming_fragments: HashMap::new(),
+            outgoing_fragments: HashMap::new(),
         }
     }
 
@@ -115,12 +118,19 @@ impl ChatServer {
         match packet.pack_type {
             //da completare
             PacketType::MsgFragment(fragment) => {}
-            //da completare
+            //da completare, mancano controlli
             PacketType::Ack(ack) => {
-                self.topology[packet.routing_header.hops[0] as usize].2 += 1.0;
+                self.topology
+                    .get_mut(&packet.routing_header.hops[0])
+                    .unwrap()
+                    .2 += 1.0;
+                self.topology
+                    .get_mut(&packet.routing_header.hops[0])
+                    .unwrap()
+                    .1 += 1.0;
             }
             //da completare
-            PacketType::Nack(_) => {}
+            PacketType::Nack(nack) => {}
             PacketType::FloodRequest(flood_request) => {
                 if let Some((last_nodeId, _)) = flood_request.path_trace.last() {
                     let updated_flood_request =
@@ -129,16 +139,24 @@ impl ChatServer {
                     self.send_packet(&mut response);
                 }
             }
-            //mancano eventuali controlli
             PacketType::FloodResponse(floodresponse) => {
-                for n in 0..floodresponse.path_trace.len() - 1 {
-                    self.topology.insert(
-                        floodresponse.path_trace[n].0 as usize,
-                        (vec![floodresponse.path_trace[n].0], 0.0, 0.0),
-                    );
-                    self.topology[floodresponse.path_trace[n].0 as usize]
+                for n in 0..floodresponse.path_trace.len() - 2 {
+                    if !self.topology.contains_key(&floodresponse.path_trace[n].0) {
+                        if floodresponse.path_trace[n].1 == Server
+                            || floodresponse.path_trace[n].1 == Client
+                        {
+                            self.topology
+                                .insert(floodresponse.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
+                        } else {
+                            self.topology
+                                .insert(floodresponse.path_trace[n].0, (HashSet::new(), 0.0, 0.0));
+                        }
+                    }
+                    self.topology
+                        .get_mut(&floodresponse.path_trace[n].0)
+                        .unwrap()
                         .0
-                        .push(floodresponse.path_trace[n + 1].0);
+                        .insert(floodresponse.path_trace[n + 1].0.clone());
                 }
             }
         }
@@ -168,26 +186,52 @@ impl ChatServer {
             let _ = sender.send(packet.clone());
         }
     }
-    //da modificare
+    //da modificare (i client e gli altri server non hanno pdp!!)
     fn calculate_path(&self, node_id: NodeId) -> Vec<NodeId> {
         let mut path = vec![0, self.id];
-        let mut current_node = self.id;
-        let mut min_weight: f64;
+        let mut psp = HashMap::new();
+        let mut dist = HashMap::new();
+        let mut prev = HashMap::new();
+        let mut queue = VecDeque::new();
+        let mut current_node;
 
-        while current_node != node_id {
-            min_weight = 1.0;
-            for vec_node_id in self.topology[current_node as usize].0.iter() {
-                if self.topology[*vec_node_id as usize].1 / self.topology[*vec_node_id as usize].2
-                    < min_weight
+        for node in self.topology.keys() {
+            let prob = self.topology.get(node).unwrap().1 / self.topology.get(node).unwrap().2;
+            psp.insert(*node, -prob.ln());
+            dist.insert(*node, MAX);
+        }
+
+        for node in self.topology.get(&self.id).unwrap().0.iter() {
+            queue.push_back(*node);
+        }
+
+        dist.insert(self.id, *psp.get(&self.id).unwrap());
+
+        while !queue.is_empty() {
+            current_node = queue.pop_front().unwrap();
+
+            for vec_node_id in self.topology.get(&current_node).unwrap().0.iter() {
+                if dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap()
+                    < *dist.get(&vec_node_id).unwrap()
                 {
-                    min_weight = self.topology[*vec_node_id as usize].1
-                        / self.topology[*vec_node_id as usize].2;
-                    current_node = *vec_node_id;
+                    dist.insert(
+                        *vec_node_id,
+                        dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap(),
+                    );
+                    prev.insert(*vec_node_id, current_node);
+                    queue.push_back(*vec_node_id);
                 }
             }
-
-            path.push(current_node);
         }
+
+        current_node = node_id;
+        while prev.get(&current_node).unwrap() != &self.id {
+            path.push(current_node);
+            current_node = *prev.get(&current_node).unwrap();
+        }
+
+        path.push(self.id);
+        path.reverse();
 
         path
     }
