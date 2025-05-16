@@ -7,10 +7,13 @@ edition = "2021"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
 initializer = { path = "crates/initializer"}
 
+
 [workspace]
-members = [
+members = [ 
     "crates/initializer",
     "crates/client",
+    "crates/message",
+    "crates/controller",
     "crates/message", "crates/server",
     "crates/assets",
 ]
