@@ -12,6 +12,7 @@ egui_graphs = { version = "0.24.0", features = ["events"] }
 egui = "0.31"
 eframe = "0.31"
 petgraph = "0.7"
+image = "0.24"
 
 fdg = { git = "https://github.com/grantshandy/fdg" }
 
