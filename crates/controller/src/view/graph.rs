@@ -1,4 +1,5 @@
 //TODO statistica di azioni che utente fa maggiormente
+use std::vec::Vec;
 use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
@@ -6,13 +7,19 @@ use std::time::Instant;
 use crossbeam_channel::select_biased;
 use eframe::{run_native, App, CreationContext, Frame};
 use egui::{Context, containers::Window};
-use egui::Shape::Vec;
 use egui_graphs::{Graph, GraphView, LayoutRandom, LayoutStateRandom, Node, DefaultGraphView, Edge, random_graph};
 use petgraph::{
     stable_graph::{StableGraph, StableUnGraph},
     Undirected,
 };
+
+use egui::ColorImage;
+use image::io::Reader as ImageReader;
+use image::GenericImageView;
+
 use egui_graphs::events::Event;
+use fdg::ForceGraph;
+use fdg::fruchterman_reingold::FruchtermanReingold;
 use petgraph::graph::NodeIndex;
 use petgraph::graphmap::Nodes;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
@@ -25,36 +32,34 @@ pub struct GraphWindow {
     pub graph: Graph<(), (), Undirected>,
     pub connections: HashMap<NodeId, Vec<NodeId>>,
     pub node_type: HashMap<NodeId, NodeType>,
-    pub nodes: HashMap<NodeId, NodeIndex>,
+    //pub nodes: HashMap<NodeId, NodeIndex>,
     pub node_images: HashMap<NodeType, egui::TextureHandle>,
     pub is_multiple_selection_allowed: bool, //TODO inizializzare a false
 
     pub max_selected: usize, // TODO inizializzare a 2
 
-    sim: ForceGraph<f32, 2, Node<(), ()>, Edge<(), ()>>,
-    force: FruchtermanReingold<f32, 2>,
 
-    settings_simulation: settings::SettingsSimulation,
+    pub sim: ForceGraph<f32, 2, Node<(), ()>, Edge<(), ()>>,
+    pub force: FruchtermanReingold<f32, 2>,
 
-    settings_graph: settings::SettingsGraph,
-    settings_interaction: settings::SettingsInteraction,
-    settings_navigation: settings::SettingsNavigation,
-    settings_style: settings::SettingsStyle,
+    pub settings_interaction: egui_graphs::SettingsInteraction,
+    pub settings_navigation: egui_graphs::SettingsNavigation,
+    pub settings_style: egui_graphs::SettingsStyle,
 
-    last_events: std::vec::Vec<String>,
+    pub last_events: std::vec::Vec<String>,
     pub selected_nodes: Vec<NodeId>,
 
-    simulation_stopped: bool,
+    pub simulation_stopped: bool,
 
-    fps: f32,
-    last_update_time: Instant,
-    frames_last_time_span: usize,
+    pub fps: f32,
+    pub last_update_time: Instant,
+    pub frames_last_time_span: usize,
 
-    event_publisher: crossbeam_channel::Sender<Event>,
-    event_consumer: crossbeam_channel::Receiver<Event>,
+    pub event_publisher: crossbeam_channel::Sender<Event>,
+    pub event_consumer: crossbeam_channel::Receiver<Event>,
 
-    pan: [f32; 2],
-    zoom: f32,
+    pub pan: [f32; 2],
+    pub zoom: f32,
 
     //TODO forse invece che fare ti mandare tutta la struttura facciamo un tipo di messaggio per le modifiche?
     pub receiver_connections: Receiver<HashMap<NodeId, Vec<NodeId>>>, //TODO mettere il sender in lib -> manda ogni volta la situa del grafo
@@ -75,13 +80,7 @@ impl App for GraphWindow {
                 .with_node_selection_multi_enabled(
                     self.settings_interaction.node_selection_multi_enabled,
                 )
-                .with_dragging_enabled(self.settings_interaction.dragging_enabled) //da togliere
                 .with_node_clicking_enabled(self.settings_interaction.node_clicking_enabled)
-                .with_edge_clicking_enabled(self.settings_interaction.edge_clicking_enabled) //togliere
-                .with_edge_selection_enabled(self.settings_interaction.edge_selection_enabled) //togliere
-                .with_edge_selection_multi_enabled( //togliere
-                    self.settings_interaction.edge_selection_multi_enabled,
-                );
             let settings_navigation = &egui_graphs::SettingsNavigation::new()
                 .with_zoom_and_pan_enabled(self.settings_navigation.zoom_and_pan_enabled)
                 .with_fit_to_screen_enabled(self.settings_navigation.fit_to_screen_enabled)
@@ -114,50 +113,133 @@ impl App for GraphWindow {
 }
 
 impl GraphWindow {
-    fn new(_: &CreationContext<'_>,
-           connections: HashMap<NodeId, Vec<NodeId>>,
-           node_type: HashMap<NodeId, NodeType>,
-           nodes: HashMap<NodeId, NodeIndex>,
-           receiver_connections: Receiver<HashMap<NodeId, Vec<NodeId>>>,
-           receiver_node_type: Receiver<HashMap<NodeId, NodeType>>,
-           receiver_updates: Receiver<GraphAction>,
-           sender_node_clicked: Sender<NodeId>) -> Self {
+    pub fn new(
+        ctx: &CreationContext<'_>,
+        connections: HashMap<NodeId, Vec<NodeId>>,
+        node_type: HashMap<NodeId, NodeType>,
+        nodes: HashMap<NodeId, NodeIndex>,
+        receiver_connections: Receiver<HashMap<NodeId, Vec<NodeId>>>,
+        receiver_node_type: Receiver<HashMap<NodeId, NodeType>>,
+        receiver_updates: Receiver<GraphAction>,
+        sender_node_clicked: Sender<NodeId>,
+        reciver_buttom_messages: Receiver<ButtonsMessages>,
+    ) -> Self {
+        let mut node_images = HashMap::new();
+
+        // 🔽 Carica immagini per ogni tipo di nodo
+        let load_and_insert = |name: &str, nodetype: NodeType, map: &mut HashMap<_, _>| {
+            let bytes = include_bytes!(concat!("../assets/", name, ".png"));
+            if let Ok(image) = Self::load_image_from_bytes(bytes) {
+                let texture = ctx.egui_ctx.load_texture(name, image, Default::default());
+                map.insert(nodetype, texture);
+            } else {
+                eprintln!("Errore nel caricare l'immagine per {:?}", nodetype);
+            }
+        };
+
+        load_and_insert("drone", NodeType::Drone, &mut node_images);
+        load_and_insert("controller", NodeType::Controller, &mut node_images);
+        load_and_insert("gateway", NodeType::Gateway, &mut node_images);
+
         let mut g = StableUnGraph::default();
-        Self { graph: Graph::from(&g), connections, node_type, nodes, receiver_connections, receiver_node_type, receiver_updates: receiver_updates, sender_node_clicked}
+        let graph = Graph::from(&g);
+
+        // Costruzione base della finestra
+        Self {
+            graph,
+            connections,
+            node_type,
+            nodes,
+            node_images,
+            is_multiple_selection_allowed: false,
+            max_selected: 2,
+
+            sim: ForceGraph::default(),
+            force: FruchtermanReingold::default(),
+
+            settings_simulation: settings::SettingsSimulation::default(),
+            settings_graph: settings::SettingsGraph::default(),
+            settings_interaction: settings::SettingsInteraction::default(),
+            settings_navigation: settings::SettingsNavigation::default(),
+            settings_style: settings::SettingsStyle::default(),
+
+            last_events: vec![],
+            selected_nodes: vec![],
+
+            simulation_stopped: false,
+            fps: 0.0,
+            last_update_time: Instant::now(),
+            frames_last_time_span: 0,
+
+            event_publisher: crossbeam_channel::unbounded().0,
+            event_consumer: crossbeam_channel::unbounded().1,
+
+            pan: [0.0, 0.0],
+            zoom: 1.0,
+
+            receiver_connections,
+            receiver_node_type,
+            receiver_updates,
+            sender_node_clicked,
+            reciver_buttom_messages,
+        }
+    }
+
+    fn load_image_from_bytes(bytes: &[u8]) -> Result<ColorImage, image::ImageError> {
+        let image = image::load_from_memory(bytes)?;
+        let rgba_image = image.to_rgba8();
+        let (width, height) = rgba_image.dimensions();
+        let size = [width as usize, height as usize];
+        let pixels = rgba_image.into_vec();
+        Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
     }
 
     pub fn run(&mut self){
+        if let Ok(command) = self.receiver_connections.try_recv(){
+            //qui riceviamo connessioni, lo mettiamo fuori dal loop
+            self.connections = command;
+        }
         self.inizialize_graph();
 
         loop{
+           // a fine loop inseriamo la fn update?
             select_biased!{
+
                 recv(self.receiver_updates) -> command =>{
                     if let Ok(command) = command{
                         self.updates_handler(command); //aggiornamenti da parte del controller sulla struttura del grafo
                     }
                 }
                 default => {
-                    // for (_, reciver) in self.receive_event.clone(){
-                    //     if let Ok(event) = reciver.try_recv(){
-                    //         self.event_handler(event);
-                    //     }
-                    // }
+                    for (_, reciver) in self.receiver_updates.cloned(){
+                        if let Ok(event) = reciver.try_recv(){
+                            self.event_handler(event);
+                        }
+                    }
                 }
             }
             if let Ok(command) = self.reciver_buttom_messages.try_recv(){
 
             }
-            // if let Ok(command) = self.ui_receiver.try_recv() {
-            //     self.ui_command_handler(command);
-            //     continue;
-            // }
-            //
-            // for (_, i) in self.receive_event.clone() {
-            //     if let Ok(event) = i.try_recv() {
-            //         self.event_handler(event);
-            //     }
-            // }
-            //
+
+            if let Ok(command) = self.reciver_buttom_messages.try_recv(){
+
+            }
+
+            if let Ok(command) = self.reciver_buttom_messages.try_recv(){
+
+            }
+            if let Ok(command) = self.ui_receiver.try_recv() {
+                self.ui_command_handler(command);
+                continue;
+            }
+
+            for (_, i) in self.receive_event.clone() {
+                if let Ok(event) = i.try_recv() {
+                    self.event_handler(event);
+                }
+            }
+
             // // Piccola pausa per evitare un ciclo troppo intenso
             std::thread::yield_now();
         }
@@ -175,16 +257,16 @@ impl GraphWindow {
 
     }
     fn inizialize_graph(&mut self) {
-        for (id, t) in self.node_type{
-            self.nodes.insert(id, self.graph.add_node(()));
+        for (id, t) in &self.node_type{
+            self.nodes.insert(*id, self.graph.add_node(()));
             //TODO aggiungere discorso immagini
         }
 
-        //let a = g.add_node(());
-        // let b = g.add_node(());
-        // let c = g.add_node(());
+        let a = self.graph.add_node(());
+        let b = self.graph.add_node(());
+        let c = self.graph.add_node(());
 
-        for (key, value) in self.connections{
+        for (key, value) in &self.connections{
             for v in value{
                 if let Some(a) = self.nodes.get(&key) {
                     if let Some(b) = self.nodes.get(&v) {
@@ -194,10 +276,10 @@ impl GraphWindow {
             }
         }
 
-        // g.add_edge(a, b, ());
-        // g.add_edge(a, b, ());
-        // g.add_edge(b, c, ());
-        // g.add_edge(c, a, ());
+        self.graph.add_edge(a, b, ());
+        self.graph.add_edge(a, b, ());
+        self.graph.add_edge(b, c, ());
+        self.graph.add_edge(c, a, ());
     }
 
     fn updates_handler(&mut self, update: GraphAction){
@@ -308,7 +390,7 @@ impl GraphWindow {
 
                     //if the node has already been clicked we're gonna to deselect it
                     if selected.contains(&clicked_node) {
-                        self.graph.
+                        //self.graph.
                     }
 
                     for (id, index) in self.nodes{
@@ -340,11 +422,12 @@ impl GraphWindow {
         }
 
         for &selected_id in &self.selected_nodes{
-            if let Some(node) = self.graph.node_mut(selected_id){
-                //TODO!
+            if let Some(node_index) = self.nodes.get(&selected_id){
+                if let Some(node) = self.graph.node_mut(*node_index){
+                    //TODO!
+                }
             }
         }
     }
-
 }
 

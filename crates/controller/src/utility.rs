@@ -2,6 +2,7 @@ use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::Pointer;
 use std::ptr::NonNull;
+use ap2024_rustinpeace_nosounddrone::NoSoundDroneRIP;
 use wg_2024::config::{Client, Drone, Server};
 use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
@@ -38,7 +39,8 @@ pub enum GraphAction {
 }
 
 pub enum ButtonEvent{
-    NewDrone(NodeId, pdr), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
+    NewDrone(NodeId, f32), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
+    //the other value is the pdr's once, so we let the user to decide it
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
     RemoveConection(NodeId, NodeId),
@@ -54,4 +56,18 @@ pub enum MessageType{
     Error(String),
     Ok(String),
     //TODO vedere se aggiungere un tipo di messaggi per il drone
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub enum DroneGroup{
+    RustInPeace,
+    BagelBomber,
+    LockheedRustin,
+    RollingDrone,
+    RustDoIt,
+    RustRoveri,
+    Rustastic,
+    RustBusters,
+    LeDronJames,
+    RustyDrones,
 }

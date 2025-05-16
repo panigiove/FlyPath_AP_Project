@@ -13,7 +13,7 @@ struct ButtonWindow{
     //these two are the nodes that are selected at the exact instant we are working
     pub node_id1: Option<NodeId>, //entrambi inisializzati a None quando azione fatta dinuovo a none
     pub node_id2:Option<NodeId>,
-    pub is_multiple_selection_allowed: bool //inizializzato a false
+    pub is_multiple_selection_allowed: bool, //inizializzato a false
     pub pdr_change: Option<f32>, //inizializza a none, quando cambio fatto dinuovo a none
 }
 
