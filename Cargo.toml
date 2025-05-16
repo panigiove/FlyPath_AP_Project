@@ -13,4 +13,5 @@ members = [
     "crates/initializer",
     "crates/client",
     "crates/message",
+    "crates/controller"
 ]
