@@ -29,6 +29,8 @@ fn validate(cfg: &Config) -> Result<(), ConfigError> {
 
     are_ids_unique(cfg)?;
     
+    check_drone_requirement(cfg)?;
+    
     check_client_requirements(cfg)?;
     
     check_server_requirements(cfg)?;
@@ -193,6 +195,48 @@ fn are_ids_unique(cfg: &Config) -> Result<(), ConfigError> {
         }
     }
 
+    Ok(())
+}
+
+fn check_drone_requirement(cfg: &Config) -> Result<(), ConfigError>{
+    let all_ids: HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
+    let client_ids: HashSet<_> = cfg.client.iter().map(|c| c.id).collect();
+    let server_ids: HashSet<_> = cfg.server.iter().map(|s| s.id).collect();
+
+    for drone in &cfg.drone {
+        let mut seen = HashSet::new();
+        for id in &drone.connected_node_ids {
+            if !seen.insert(id) {
+                return Err(ConfigError::Validation(format!(
+                    "The drone with id = [{}] has a duplicate in the connected_node_ids list: [{}]",
+                    drone.id, id
+                )));
+            }
+            
+            if drone.id == *id {
+                return Err(ConfigError::Validation(format!(
+                    "The drone with id = [{}] cannot be connected to itself",
+                    drone.id
+                )));
+            }
+            
+            if !all_ids.contains(id) && !client_ids.contains(id) && !server_ids.contains(id) {
+                return Err(ConfigError::Validation(format!(
+                    "The drone with id = [{}] is connected to an unknown node id = [{}]",
+                    drone.id, id
+                )));
+            }
+        }
+
+        // You might want to define a minimum number of connections (example: at least 1)
+        // if drone.connected_node_ids.is_empty() {
+        //     return Err(ConfigError::Validation(format!(
+        //         "The drone with id = [{}] must be connected to at least one node",
+        //         drone.id
+        //     )));
+        // }
+    }
+    
     Ok(())
 }
 
@@ -417,6 +461,7 @@ mod tests {
         assert!(!is_connected(&config), "Graph should not be connected.");
     }
 
+
     #[test]
     fn test_non_unique_ids() {
         let config = Config {
@@ -431,6 +476,53 @@ mod tests {
             assert!(msg.contains("The id = [1] is duplicated"));
         }
     }
+
+    #[test]
+    fn test_drone_duplicate_connection() {
+        let config = Config {
+            drone: vec![Drone { id: 1, connected_node_ids: vec![2,2], pdr: 0.1 }],
+            client: vec![Client { id: 2, connected_drone_ids: vec![] }],
+            server: vec![],
+        };
+
+        let result = validate(&config);
+        assert!(result.is_err());
+        if let Err(ConfigError::Validation(msg)) = result {
+            assert!(msg.contains("The drone with id = [1] has a duplicate in the connected_node_ids list: [2]"), "got: {msg}");
+        }
+    }
+
+    #[test]
+    fn test_drone_self_connection() {
+        let config = Config {
+            drone: vec![Drone { id: 1, connected_node_ids: vec![1], pdr: 0.1 }],
+            client: vec![Client { id: 2, connected_drone_ids: vec![] }],
+            server: vec![],
+        };
+
+        let result = validate(&config);
+        assert!(result.is_err());
+        if let Err(ConfigError::Validation(msg)) = result {
+            assert!(msg.contains("The drone with id = [1] cannot be connected to itself"), "got: {msg}");
+        }
+    }
+
+    #[test]
+    fn test_drone_unknown_connection() {
+        let config = Config {
+            drone: vec![Drone { id: 1, connected_node_ids: vec![42], pdr: 0.1 }],
+            client: vec![],
+            server: vec![],
+        };
+
+        let result = validate(&config);
+        assert!(result.is_err());
+        if let Err(ConfigError::Validation(msg)) = result {
+            assert!(msg.contains("The drone with id = [1] is connected to an unknown node id = [42]"), "got: {msg}");
+        }
+        
+    }
+    
     #[test]
     fn test_client_connected_to_client() {
         let config = Config {
@@ -445,7 +537,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] cannot be connected to another client (with id = [3])"));
+            assert!(msg.contains("The client with id = [2] cannot be connected to another client (with id = [3])"), "got: {msg}");
         }
     }
 
@@ -464,7 +556,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [4] can be connected to at least one and at most two drones but found: 3"));
+            assert!(msg.contains("The client with id = [4] can be connected to at least one and at most two drones but found: 3"), "got: {msg}");
         }
     }
 
@@ -479,7 +571,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] cannot be connected to a server (with id = [3])"));
+            assert!(msg.contains("The client with id = [2] cannot be connected to a server (with id = [3])"), "got: {msg}");
         }
     }
 
@@ -494,7 +586,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] has a duplicate in the drone's list, which is: id = [1]"));
+            assert!(msg.contains("The client with id = [2] has a duplicate in the drone's list, which is: id = [1]"), "got: {msg}");
         }
     }
 
@@ -509,7 +601,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] is connected to the id = [4] which is not valid"));
+            assert!(msg.contains("The client with id = [2] is connected to the id = [4] which is not valid"), "got: {msg}");
         }
     }
     
@@ -524,7 +616,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [3] cannot be connected to a client (with id = [2])"));
+            assert!(msg.contains("The server with id = [3] cannot be connected to a client (with id = [2])"), "got: {msg}");
         }
     }
 
@@ -539,7 +631,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [5] cannot be connected to another server (with id = [4])"));
+            assert!(msg.contains("The server with id = [5] cannot be connected to another server (with id = [4])"), "got: {msg}");
         }
     }
 
@@ -554,7 +646,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [4] has a duplicate in the drone's list, which is: id = [1]"));
+            assert!(msg.contains("The server with id = [4] has a duplicate in the drone's list, which is: id = [1]"), "got: {msg}");
         }
     }
 
@@ -569,7 +661,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [4] is connected to the id = [5] which is not valid"));
+            assert!(msg.contains("The server with id = [4] is connected to the id = [5] which is not valid"), "got: {msg}");
         }
     }
 
@@ -587,7 +679,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [4] should be connected to at least two drones but found: 1"));
+            assert!(msg.contains("The server with id = [4] should be connected to at least two drones but found: 1"), "got: {msg}");
         }
     }
 
@@ -605,7 +697,7 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The graph is not bidirectional"));
+            assert!(msg.contains("The graph is not bidirectional"), "got: {msg}");
         }
     }
 
