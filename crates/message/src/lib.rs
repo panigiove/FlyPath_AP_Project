@@ -1,8 +1,8 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
-use std::collections::{HashMap, HashSet};
 
 use crossbeam_channel::Sender;
 
@@ -14,31 +14,31 @@ pub enum NodeCommand {
     AddSender(NodeId, Sender<Packet>),
     FromShortcut(Packet),
 }
-pub enum NodeEvent{
+pub enum NodeEvent {
     PacketSent(Packet),
     CreateMessage(SentMessageWrapper), // try send message (every times is sended a stream of fragment)
-    MessageRecv(RecvMessageWrapper), // received full message 
+    MessageRecv(RecvMessageWrapper),   // received full message
+    ControllerShortcut(Packet),
 }
-
 
 // ------------------------------ HIGH MESSAGE ERRORS
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageError {
     DirectConnectionDoNotWork(u64, NodeId),
     ServerUnreachable(u64, NodeId),
-    NoFragmentStatus(u64),
+    NoFragmentWrapper(u64),
     InvalidMessageReceived(u64),
-
+    InvalidFragmentIndex(u64, u64),
     MessageNotComplete,
 }
 
 // ------------------------------ HIGH MESSAGE
-// use this to store message and message State 
+// use this to store message and message State
 #[derive(Debug, Clone)]
 pub struct SentMessageWrapper {
     pub session_id: u64,
     pub destination: NodeId,
-    pub total_n_fragments: u64, 
+    pub total_n_fragments: u64,
     pub acked: HashSet<u64>,
     pub fragments: Vec<Fragment>,
 
@@ -47,8 +47,8 @@ pub struct SentMessageWrapper {
 
 impl SentMessageWrapper {
     pub fn new_from_raw_data(session_id: u64, destination: NodeId, raw_data: String) -> Self {
-        let (fragments, total_n_fragments) =SentMessageWrapper::fragmentation(&raw_data);
-        Self{
+        let (fragments, total_n_fragments) = SentMessageWrapper::fragmentation(raw_data.clone());
+        Self {
             session_id,
             destination,
             total_n_fragments,
@@ -58,26 +58,25 @@ impl SentMessageWrapper {
         }
     }
 
-
-    pub fn is_all_fragment_acked(&self) -> bool{
+    pub fn is_all_fragment_acked(&self) -> bool {
         self.total_n_fragments == self.acked.len() as u64
     }
 
-    pub fn get_fragment(&self, i: usize) -> Option<Fragment>{
+    pub fn get_fragment(&self, i: usize) -> Option<Fragment> {
         self.fragments.get(i).cloned()
     }
 
-    pub fn fragment_acked(&self, index: u64) -> bool{
+    pub fn fragment_acked(&self, index: u64) -> bool {
         self.acked.contains(&index)
     }
 
-    pub fn add_acked(&mut self, index: u64){
+    pub fn add_acked(&mut self, index: u64) {
         if index < self.total_n_fragments {
             self.acked.insert(index);
         }
     }
 
-    pub fn fragmentation (raw_data: &String) -> (Vec<Fragment>, u64){
+    pub fn fragmentation(raw_data: String) -> (Vec<Fragment>, u64) {
         let raw_bytes = raw_data.clone().into_bytes();
         let total_n_fragments = raw_bytes.len().div_ceil(FRAGMENT_DSIZE) as u64;
         let fragments = raw_bytes
@@ -92,7 +91,8 @@ impl SentMessageWrapper {
                     length: chunk.len() as u8,
                     data,
                 }
-            }).collect();
+            })
+            .collect();
         (fragments, total_n_fragments)
     }
 }
@@ -102,21 +102,21 @@ impl SentMessageWrapper {
 pub struct RecvMessageWrapper {
     pub session_id: u64,
     pub source: NodeId,
-    pub total_n_fragments:u64,
+    pub total_n_fragments: u64,
     pub arrived: HashSet<u64>,
     pub fragments: Vec<Option<Fragment>>,
 
     pub raw_data: String,
 }
 
-impl RecvMessageWrapper{
+impl RecvMessageWrapper {
     pub fn new(session_id: u64, source: NodeId, total_n_fragments: u64) -> Self {
         Self {
             session_id,
             source,
             total_n_fragments,
             arrived: HashSet::new(),
-            fragments: vec![None; total_n_fragments as usize], 
+            fragments: vec![None; total_n_fragments as usize],
             raw_data: "".to_string(),
         }
     }
@@ -128,8 +128,8 @@ impl RecvMessageWrapper{
     pub fn add_fragment(&mut self, fragment: Fragment) {
         if fragment.fragment_index < self.total_n_fragments {
             let index = fragment.fragment_index;
-            self.arrived.insert(index); 
-            self.fragments[index as usize] = Some(fragment); 
+            self.arrived.insert(index);
+            self.fragments[index as usize] = Some(fragment);
         }
     }
 
@@ -137,19 +137,17 @@ impl RecvMessageWrapper{
         if !self.is_all_fragments_arrived() {
             return Err(MessageError::MessageNotComplete);
         }
-    
+
         let full_message: Vec<u8> = self
             .fragments
             .iter()
             .flat_map(|frag| {
                 frag.as_ref()
                     .map(|f| f.data[..f.length as usize].to_vec())
-                    .unwrap_or_else(|| {
-                        Vec::new()
-                    })
+                    .unwrap_or_else(|| Vec::new())
             })
             .collect();
-    
+
         // funziona anche con i ?
         match String::from_utf8(full_message) {
             Ok(raw_data) => {
@@ -160,8 +158,6 @@ impl RecvMessageWrapper{
         }
     }
 }
-
-
 
 // ------------------------------ HIGH MESSAGE TYPE
 pub trait DroneSend: Serialize + DeserializeOwned {

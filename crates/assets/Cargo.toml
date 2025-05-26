@@ -1,10 +1,10 @@
 [package]
-name = "initializer"
+name = "assets"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
-toml = "0.8.19"
-serde = { version = "1.0.217", features = ["derive"] }
-thiserror = "2.0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+crossbeam-channel = "0.5.13"
