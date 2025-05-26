@@ -25,6 +25,7 @@ pub enum Operation{
     RemoveSender
 }
 
+#[derive(Clone)]
 pub enum NodeType{
     Drone,
     Server,
@@ -55,6 +56,8 @@ pub enum ButtonsMessages{
 pub enum MessageType{
     Error(String),
     Ok(String),
+    PacketSent(String),
+    PacketDropped(String),
     //TODO vedere se aggiungere un tipo di messaggi per il drone
 }
 
