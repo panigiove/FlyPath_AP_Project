@@ -8,8 +8,9 @@ wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 crossbeam-channel = "0.5.13"
 rand = "0.8"
 
-egui_graphs = { version = "0.24.0", features = ["events"] }
+egui_graphs = "0.23.0"
 egui = "0.31"
+egui_extras = "0.31.1"
 eframe = "0.31"
 petgraph = "0.7"
 image = "0.24"

@@ -1,11 +1,6 @@
-// mod controller_test;
-// mod utility;
-// mod graph;
-// mod buttons;
-
 use message::{NodeCommand};
 
-use crossbeam_channel::{select, select_biased, Receiver, Sender, unbounded};
+use crossbeam_channel::{select, select_biased, Receiver, Sender, unbounded, TrySendError};
 use std::collections::HashMap;
 use std::fmt::{format, Pointer};
 
@@ -29,21 +24,22 @@ use rusty_drones::RustyDrone;
 use wg_2024::config::Server;
 use crate::utility::{ButtonEvent, GraphAction, NodeType, MessageType, DroneGroup};
 use crate::utility::GraphAction::{AddEdge, AddNode, RemoveEdge, RemoveNode};
-use crate::utility::MessageType::Error;
+use crate::utility::MessageType::{Error, PacketSent};
 use egui_graphs::Node;
 use rand::seq::SliceRandom;
 use wg_2024::drone::Drone;
+use message::NodeCommand::FromShortcut;
 use crate::utility::Operation::{AddSender, RemoveSender};
 
 pub struct ControllerHandler {
     pub drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
     pub drones_types: HashMap<NodeId, DroneGroup>,
     pub drone_senders: HashMap<NodeId, Sender<Packet>>, //the set of all the senders
-    //pub clients: HashMap<NodeId, Box<dyn Client>>, //devo importare robe di daniele
+    pub clients: HashMap<NodeId, Box<dyn Client>>, //devo importare robe di daniele
     //pub servers: HashMap<NodeId, Box<dyn Server>>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>, // da controller a drone
-    //pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // da client a controller (anche server?) TODO io non avevo il reciver?
+    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // da client a controller (anche server?) TODO io non avevo il reciver?
     pub receiver_event: HashMap<NodeId, Receiver<DroneEvent>>, // da dorne a controller
     //pub send_packet_server: HashMap<NodeId, Sender<Packet>>, //canali diversi per client e server vedi nodeCommand
     //pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
@@ -71,7 +67,7 @@ impl ControllerHandler {
         //servers: HashMap<NodeId, Box<dyn Server>>,
         connections: HashMap<NodeId, Vec<NodeId>>,
         send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
-        //send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
+        send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
         reciver_event: HashMap<NodeId, Receiver<DroneEvent>>,
         //send_packet_server: HashMap<NodeId, Sender<Packet>>,
         //send_packet_client: HashMap<NodeId, Sender<Packet>>,
@@ -92,7 +88,7 @@ impl ControllerHandler {
             //servers,
             connections,
             send_command_drone,
-            //send_command_node,
+            send_command_node,
             receiver_event: reciver_event,
             // send_packet_server,
             // send_packet_client,
@@ -108,45 +104,73 @@ impl ControllerHandler {
     //TODO complete run
     pub fn run(&mut self) {
         loop {
-            select_biased! {
-                // recv(self.ui_receiver) -> command =>{
-                //     if let Ok(command) = command{
-                //         self.ui_command_handler(command); //TODO completare una volta fatta la UI
-                //     }
-                // }
-                default => {
-                    for (_, reciver) in self.receiver_event.clone(){
-                        if let Ok(event) = reciver.try_recv(){
-                            //self.event_handler(event);
-                        }
-                    }
+            for (node_id, receiver) in self.receiver_event.clone() {
+                if let Ok(event) = receiver.try_recv() {
+                    self.drone_event_handlrer(event, node_id);
                 }
             }
-            // if let Ok(command) = self.ui_receiver.try_recv() {
-            //     self.ui_command_handler(command);
-            //     continue;
-            // }
 
             if let Ok(command) = self.button_receiver.try_recv() {
                 self.button_event_handler(command);
-                continue;
             }
-
-            for (_, i) in self.receiver_event.clone() {
-                if let Ok(event) = i.try_recv() {
-                    //self.event_handler(event);
-                }
-            }
-
-            if let Ok(command) = self.button_receiver.try_recv(){
-                self.button_event_handler(command);
-            }
-
+            
+            //TODO aggiungere il meccanismo per fermare loop
 
             // Piccola pausa per evitare un ciclo troppo intenso
             std::thread::yield_now();
         }
     }
+    
+    //—————————————————————————————————————————— Handlers ——————————————————————————————————————————
+
+    pub fn button_event_handler(&mut self, event: ButtonEvent) {
+        match event {
+            ButtonEvent::NewDrone(id, pdr) => {
+                self.spawn(&id, pdr);
+            }
+            ButtonEvent::NewConnection(id1, id2) => {
+                self.add_connection(&id1, &id2);
+
+            }
+
+            ButtonEvent::Crash(id) => {
+                self.crash(&id);
+
+            }
+
+            ButtonEvent::RemoveConection(id1, id2) => {
+                //TODO verificare se è corretto interrompere la comunicazione da entrambi i lati
+                self.remove_sender(&id1, &id2);
+
+            }
+
+            ButtonEvent::ChangePdr(id, pdr) => {
+                self.change_packet_drop_rate(&id, pdr);
+            }
+
+        }
+    }
+
+    pub fn drone_event_handlrer(&mut self, event: DroneEvent, drone_sender_id: NodeId){
+        match event{
+            DroneEvent::PacketSent(packet) => {
+                if let Err(e) = self.message_sender.try_send(PacketSent(format!("The drone with ID [{}] has successfully sent the packet with session ID [{}]", drone_sender_id, packet.session_id))){
+                    eprint!("Simulation Controller: The message confirming the successful reception of the PacketSent sent by the drone with ID [{}] could not be sent to the Message Window.", drone_sender_id)
+                }
+            }
+            DroneEvent::PacketDropped(packet) => {
+                if let Err(e) = self.message_sender.try_send(PacketSent(format!("The drone with ID [{}] has not successfully sent the packet with session ID [{}]", drone_sender_id, packet.session_id))){
+                    eprint!("Simulation Controller: The message indicating the unsuccessful reception of the PacketSent from the drone with ID [{}] could not be sent to the Message Window.", drone_sender_id)
+                }
+            }
+
+            DroneEvent::ControllerShortcut(packet) => {
+                self.send_packet_to_client(packet).unwrap();
+            }
+        }
+    }
+
+    //——————————————————————————————————————— Useful metods ————————————————————————————————————————
 
     //TODO fare in modo che ne restituisca l'id
     pub fn new_drone_balanced(&mut self, id: NodeId,
@@ -198,81 +222,29 @@ impl ControllerHandler {
         candidates.shuffle(&mut thread_rng());
         candidates.into_iter().next()
     }
-
-    pub fn button_event_handler(&mut self, event: ButtonEvent) {
-        match event {
-            ButtonEvent::NewDrone(id, pdr) => {
-                self.spawn(&id, pdr);
+    
+    pub fn send_packet_to_client(&self, mut packet: Packet) -> Result<(), TrySendError<NodeCommand>> {
+        if let Some(destination) = packet.routing_header.hops.clone().pop() {
+            //TODO controllo se NodeId è presente tra i client (guarda la prima riga commentata sotto)
+            if self.clients.contains_key(&destination){
+                if let Some(channel) = self.send_command_node.get(&destination){
+                    channel.try_send(FromShortcut(packet))?;
+                }
+                //TODO stampare il fatto che c'è stato un errore nella comunicazione con il canale del client
             }
-            ButtonEvent::NewConnection(id1, id2) => {
-                self.add_connection(&id1, &id2);
-
+            
+            else{
+                //TODO messagio errore da stampare che il client non risulta esistente
             }
-
-            ButtonEvent::Crash(id) => {
-                self.crash(&id);
-
-            }
-
-            ButtonEvent::RemoveConection(id1, id2) => {
-                //TODO verificare se è corretto interrompere la comunicazione da entrambi i lati
-                self.remove_sender(&id1, &id2);
-
-            }
-
-            ButtonEvent::ChangePdr(id, pdr) => {
-                self.change_packet_drop_rate(&id, pdr);
-            }
-
         }
+        Ok(())
     }
-
-
-    // pub fn event_handler(&mut self, event: DroneEvent) {
-    //     match event {
-    //         DroneEvent::PacketSent(packet) => self.notify_packet_sent(packet),
-    //         DroneEvent::PacketDropped(packet) => self.notify_packet_dropped(packet),
-    //         DroneEvent::ControllerShortcut(packet) => self.send_packet(packet).unwrap(), //TODO togliere unwrap
-    //     }
-    // }
-
-
-    // TODO sistemare questa funzione: il controller si occupa di mandare pacchetti che non possono essere persi a client/server
-    pub fn send_packet(&self, mut packet: Packet) -> Result<(), ()> {
-        if let Some(destination) = packet.routing_header.hops.pop() {
-            // if let Some(sender) = self.send_packet_client.get(&destination) {
-            //     //sender.send(packet).map_err(|_| Err(()))?; //abbiamo modificato il tipo di errorezZ
-            //     return Ok(());
-            // } else if let Some(sender) = self.send_packet_server.get(&destination) {
-            //     //sender.send(packet).map_err(|_| Err(()))?;
-            //     return Ok(());
-            // }
-        }
-        Err((()))
-        // let destination = hops.pop();
-        // match destination{
-        //     Ok(id) => self.send_packet_client.get(id).unwrap().send(packet).unwrap(),
-        //     _ => None
-        // }
-    }
-
-    // pub fn notify_packet_sent(&self, packet: Packet) {
-    //     // self.ui_sender.send(PacketDropped(packet));
-    // }
 
     // pub fn notify_packet_dropped(&self, packet: Packet) {
     //     self.ui_sender.send(UIcommand::PacketDropped(packet));
     // }
 
-    // &mut self, id: NodeId,
-    // sender_event: Sender<DroneEvent>,
-    // receiver_command: Receiver<DroneCommand>,
-    // receiver_packet: Receiver<Packet>,
-    // packet_sender: HashMap<NodeId, Sender<Packet>>, drop_rate: f32
-    //
-    // receiver_event: HashMap<NodeId, Receiver<DroneEvent>>
-    //
-    // -> (drone, sender_packet, connections, sender_drone_command, reciver_event)
+
     //
     // TODO vedere se funzione sotto deve essere migliorata in qualche modo
 
@@ -330,6 +302,7 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
 
     //adds a new dorne to the network
     pub fn spawn(&mut self, first_connection: &NodeId, pdr: f32) {
+        //TODO nella generazione random bisogna considerare anche gli id dei client e dei server
         let Some(id) = get_random_key(&self.drones) else {
             eprintln!("Controller: Couldn't get a random key");
             let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
@@ -535,10 +508,6 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
     //TODO sistemare la funzione is_drone in modo tale che sia lei a far stampare il messaggio
 
     //alter the pdr of a drone
-
-
-
-
     fn change_packet_drop_rate(&mut self, id: &NodeId, new_pdr: f32){
     match self.set_packet_drop_rate(id,new_pdr){
         Ok(pdr) => {
@@ -581,57 +550,50 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
             self.drones.contains_key(id)
         }
 
-        fn check_network_before_add_drone(&self, drone_id: &NodeId, connection: &Vec<NodeId>) -> bool {
-            let mut adj_list = self.connections.clone();
+    fn check_network_before_add_drone(&self, drone_id: &NodeId, connection: &Vec<NodeId>) -> bool {
+        let mut adj_list = self.connections.clone();
 
-            adj_list.insert(*drone_id, connection.clone());
-            for neighbor in connection {
-                if let Some(neighbor) = adj_list.get_mut(&neighbor) {
-                    neighbor.push(*drone_id);
-                };
-            }
-
-            self.are_server_and_clients_requirements_respected(&adj_list)
+        adj_list.insert(*drone_id, connection.clone());
+        for neighbor in connection {
+            if let Some(neighbor) = adj_list.get_mut(&neighbor) {
+                neighbor.push(*drone_id);
+            };
         }
+        self.are_server_and_clients_requirements_respected(&adj_list)
+    }
 
-        fn check_network_before_removing_drone(&self, drone_id: &NodeId) -> bool {
-            let mut adj_list = self.connections.clone();
+    fn check_network_before_removing_drone(&self, drone_id: &NodeId) -> bool {
+        let mut adj_list = self.connections.clone();
 
-            if adj_list.remove(drone_id).is_none() {
-                println!("Controller: Drone with id = {} can't be removed cause it doesen't exist", drone_id);
-            }
-            for neighbors in adj_list.values_mut() {
-                neighbors.retain(|&id| id != *drone_id);
-            }
-
-            self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone_id, &adj_list)
+        if adj_list.remove(drone_id).is_none() {
+            println!("Controller: Drone with id = {} can't be removed cause it doesen't exist", drone_id);
         }
-
-        fn check_network_before_add_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool {
-            let mut adj_list = self.connections.clone();
-
-            if let Some(neighbors) = adj_list.get_mut(drone1_id) {
-                neighbors.push(*drone2_id);
-            }
-            if let Some(neighbors) = adj_list.get_mut(drone2_id) {
-                neighbors.push(*drone1_id);
-            }
-
-            self.are_server_and_clients_requirements_respected(&adj_list)
+        for neighbors in adj_list.values_mut() {
+            neighbors.retain(|&id| id != *drone_id);
         }
+        self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone_id, &adj_list)
+    }
 
-        fn check_network_remove_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool {
-            let mut adj_list = self.connections.clone();
-
-            if let Some(neighbors) = adj_list.get_mut(drone1_id) {
-                neighbors.retain(|&id| id != *drone2_id);
-            }
-            if let Some(neighbors) = adj_list.get_mut(&drone2_id) {
-                neighbors.retain(|&id| id != *drone1_id);
-            }
-
-            self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone1_id, &adj_list)
+    fn check_network_before_add_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool {
+        let mut adj_list = self.connections.clone();
+        if let Some(neighbors) = adj_list.get_mut(drone1_id) {
+            neighbors.push(*drone2_id);
         }
+        if let Some(neighbors) = adj_list.get_mut(drone2_id) {
+            neighbors.push(*drone1_id);
+        }
+        self.are_server_and_clients_requirements_respected(&adj_list)
+    }
+     fn check_network_remove_sender(&self, drone1_id: &NodeId, drone2_id: &NodeId) -> bool {
+         let mut adj_list = self.connections.clone();
+         if let Some(neighbors) = adj_list.get_mut(drone1_id) {
+             neighbors.retain(|&id| id != *drone2_id);
+         }
+         if let Some(neighbors) = adj_list.get_mut(&drone2_id) {
+             neighbors.retain(|&id| id != *drone1_id);
+         }
+         self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone1_id, &adj_list)
+     }
 
         // each client must remain connected to at least one and at most two drones
         // and each server must remain connected to at least two drones

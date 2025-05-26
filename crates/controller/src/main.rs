@@ -1,12 +1,4 @@
-mod controller_handler;
-mod utility;
 
-pub mod view {
-    pub mod graph;
-    pub mod panel_view;
-    pub mod messages_view;
-    pub mod buttons;
-}
 
 use eframe::{run_native, App, CreationContext};
 use egui::{Context, containers::Window};

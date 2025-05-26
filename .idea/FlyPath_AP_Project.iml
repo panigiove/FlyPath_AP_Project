@@ -5,6 +5,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/initializer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/controller/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/client/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/message/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
