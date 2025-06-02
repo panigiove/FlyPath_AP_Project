@@ -1,26 +1,15 @@
-// TODO: network discovery protocol, da mandare per inizializzare poi ogni tot ms e poi per ogni nack
-mod comunication;
+mod channel;
+pub mod comunication;
+mod message;
+mod network;
 mod test;
-mod worker;
-
-use log::{debug, error, info, warn};
-use std::collections::{HashMap, HashSet};
-use std::process;
-
-use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
-use message::{ChatRequest, ChatResponse, DroneSend, MediaRequest, MediaResponse};
-use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{
-    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
-};
-
-use comunication::{FromUiCommunication, ServerType, ToUIComunication};
+pub mod ui;
+pub mod worker;
 
 // Send N fragment at the time
 // every ack send another frag
 // if dropped send again
 // if other nack make again the flood_request and send from the ack not acked.
-// TODO: introdurre un aging
 #[derive(Debug)]
 pub struct Client {}
 
@@ -38,8 +27,6 @@ mod tests {
     use crossbeam_channel::unbounded;
     use crossbeam_channel::{Receiver, Sender};
     use std::collections::HashMap;
-    use std::thread::{self, sleep};
-    use std::time::Duration;
 
     // Importing all drone implementations
     use ap2024_rustinpeace_nosounddrone::NoSoundDroneRIP;
