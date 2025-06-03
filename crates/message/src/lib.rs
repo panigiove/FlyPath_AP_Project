@@ -5,6 +5,7 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
 
 use crossbeam_channel::Sender;
+use crate::ChatResponse::MessageFrom;
 
 pub const FRAGMENT_DSIZE: usize = 128;
 
@@ -56,6 +57,25 @@ impl SentMessageWrapper {
             fragments,
             raw_data,
         }
+    }
+
+    /// Create `Wrapper` from a serializable message
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use message::{ChatRequest, SentMessageWrapper};
+    /// let nid = 1;
+    /// let msg = ChatRequest::ClientList;
+    /// let wrapper = SentMessageWrapper::from_message(1, nid, &msg);
+    /// ```
+    pub fn from_message<T: DroneSend>(
+        session_id: u64,
+        destination: NodeId,
+        message: &T,
+    ) -> Self {
+        let raw_data = message.stringify();
+        Self::new_from_raw_data(session_id, destination, raw_data)
     }
 
     pub fn is_all_fragment_acked(&self) -> bool {
@@ -133,6 +153,23 @@ impl RecvMessageWrapper {
         }
     }
 
+    /// Try to deserialize received fragments in specified message type
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut recv = RecvMessageWrapper::new(session_id, source, total_fragments);
+    /// // recv.add_fragment(...); // add all fragments
+    /// if recv.is_all_fragments_arrived() {
+    ///     let msg: ChatRequest = recv.try_deserialize().unwrap();
+    /// }
+    /// ```
+    pub fn try_deserialize<T: DroneSend>(&mut self) -> Result<T, MessageError> {
+        self.try_generate_raw_data()?;
+        DroneSend::from_string(self.raw_data.clone())
+            .map_err(|_| MessageError::InvalidMessageReceived(self.session_id))
+    }
+
     pub fn try_generate_raw_data(&mut self) -> Result<(), MessageError> {
         if !self.is_all_fragments_arrived() {
             return Err(MessageError::MessageNotComplete);
@@ -174,14 +211,6 @@ pub trait Response: DroneSend {}
 
 // -------------------- Messages --------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaRequest {
-    MediaList,
-    Media(u64),
-}
-impl DroneSend for MediaRequest {}
-impl Request for MediaRequest {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatRequest {
     ClientList,
     Register(NodeId),
@@ -193,15 +222,6 @@ pub enum ChatRequest {
 }
 impl DroneSend for ChatRequest {}
 impl Request for ChatRequest {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaResponse {
-    MediaList(Vec<u64>),
-    Media(Vec<u8>), // should we use some other type?
-}
-
-impl DroneSend for MediaResponse {}
-impl Response for MediaResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatResponse {
