@@ -1,5 +1,4 @@
-use std::sync::mpsc::{Receiver, Sender};
-use crossbeam_channel::select_biased;
+use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
 use eframe::App;
 use egui::Context;
 use wg_2024::network::NodeId;
@@ -15,11 +14,28 @@ struct ButtonWindow{
     pub node_id2:Option<NodeId>,
     pub is_multiple_selection_allowed: bool, //inizializzato a false
     pub pdr_change: Option<f32>, //inizializza a none, quando cambio fatto dinuovo a none
+    pub current_node_clicked: Option<NodeId>,
+    pub current_pdr: Option<f32>
 }
 
 impl Default for ButtonWindow {
     fn default() -> Self {
-        Self { counter: 0 }
+        let (sender_button_event, receiver_button_event) = unbounded::<ButtonEvent>();
+        let (sender_buttom_messages, receiver_buttom_messages) = unbounded::<ButtonsMessages>();
+        let (sender_node_clicked, receiver_node_clicked) = unbounded::<NodeId>();
+
+
+        Self {
+            reciver_node_clicked: receiver_node_clicked,
+            sender_button_event,
+            sender_buttom_messages,
+            node_id1: None,
+            node_id2: None,
+            is_multiple_selection_allowed: false,
+            pdr_change: None,
+            current_node_clicked: None,
+            current_pdr: None,
+        }
     }
 }
 
@@ -68,10 +84,13 @@ impl App for ButtonWindow{
 impl ButtonWindow{
     pub fn new() -> Self{
         //TODO!
+        Self{
+            
+        }
     }
 
     pub fn run(&mut self){
-        self.inizialize_graph();
+        //self.inizialize_graph();
 
         loop{
             select_biased!{
@@ -122,7 +141,11 @@ impl ButtonWindow{
     }
 
     pub fn new_drone(&mut self){
-        self.sender_button_event.send(NewDrone());  //TODO vedere come gestire
+        if let Some(id) = self.current_node_clicked{
+            if let Some(pdr) = self.current_pdr{
+                self.sender_button_event.send(NewDrone(id, pdr));  //TODO vedere come gestire
+            }
+        }
         //deselezionare bottone?
     }
 
