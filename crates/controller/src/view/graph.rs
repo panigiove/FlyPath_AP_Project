@@ -430,4 +430,3 @@ impl GraphWindow {
         }
     }
 }
-

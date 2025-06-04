@@ -9,5 +9,5 @@ pub mod view {
     pub mod messages_view;
     pub mod buttons;
     
-    pub mod custon_node;
+    pub mod graph_components;
 }

@@ -21,7 +21,7 @@ use rustastic_drone::RustasticDrone;
 use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
-use wg_2024::config::Server;
+use wg_2024::config::{Client, Server};
 use crate::utility::{ButtonEvent, GraphAction, NodeType, MessageType, DroneGroup};
 use crate::utility::GraphAction::{AddEdge, AddNode, RemoveEdge, RemoveNode};
 use crate::utility::MessageType::{Error, PacketSent};
@@ -35,8 +35,8 @@ pub struct ControllerHandler {
     pub drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
     pub drones_types: HashMap<NodeId, DroneGroup>,
     pub drone_senders: HashMap<NodeId, Sender<Packet>>, //the set of all the senders
-    pub clients: HashMap<NodeId, Box<dyn Client>>, //devo importare robe di daniele
-    //pub servers: HashMap<NodeId, Box<dyn Server>>,
+    pub clients: HashMap<NodeId, Client>, //devo importare robe di daniele
+    pub servers: HashMap<NodeId, Server>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>, // da controller a drone
     pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // da client a controller (anche server?) TODO io non avevo il reciver?
@@ -63,8 +63,8 @@ impl ControllerHandler {
         drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
         drones_types: HashMap<NodeId, DroneGroup>,
         drone_senders: HashMap<NodeId, Sender<Packet>>,
-        //clients: HashMap<NodeId, Box<dyn Client>>,
-        //servers: HashMap<NodeId, Box<dyn Server>>,
+        clients: HashMap<NodeId, Client>,
+        servers: HashMap<NodeId, Server>,
         connections: HashMap<NodeId, Vec<NodeId>>,
         send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
         send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
@@ -84,8 +84,8 @@ impl ControllerHandler {
             drones,
             drones_types,
             drone_senders,
-            //clients,
-            //servers,
+            clients,
+            servers,
             connections,
             send_command_drone,
             send_command_node,
@@ -225,7 +225,6 @@ impl ControllerHandler {
     
     pub fn send_packet_to_client(&self, mut packet: Packet) -> Result<(), TrySendError<NodeCommand>> {
         if let Some(destination) = packet.routing_header.hops.clone().pop() {
-            //TODO controllo se NodeId è presente tra i client (guarda la prima riga commentata sotto)
             if self.clients.contains_key(&destination){
                 if let Some(channel) = self.send_command_node.get(&destination){
                     channel.try_send(FromShortcut(packet))?;

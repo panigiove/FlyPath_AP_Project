@@ -25,7 +25,7 @@ pub enum Operation{
     RemoveSender
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum NodeType{
     Drone,
     Server,
