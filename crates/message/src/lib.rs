@@ -221,7 +221,6 @@ pub enum ChatRequest {
     ClientList,
     Register(NodeId),
     SendMessage {
-        id: u64,
         from: NodeId,
         to: NodeId,
         message: String,
@@ -234,7 +233,7 @@ impl Request for ChatRequest {}
 pub enum ChatResponse {
     ClientList(Vec<NodeId>),
     MessageFrom { from: NodeId, message: Vec<u8> },
-    MessageSent(u64),
+    ErrorWrongClientId(NodeId),
 }
 
 impl DroneSend for ChatResponse {}
