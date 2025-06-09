@@ -5,7 +5,6 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
 
 use crossbeam_channel::Sender;
-use crate::ChatResponse::MessageFrom;
 
 pub const FRAGMENT_DSIZE: usize = 128;
 
@@ -20,17 +19,6 @@ pub enum NodeEvent {
     CreateMessage(SentMessageWrapper), // try send message (every times is sended a stream of fragment)
     MessageRecv(RecvMessageWrapper),   // received full message
     ControllerShortcut(Packet),
-}
-
-// ------------------------------ HIGH MESSAGE ERRORS
-#[derive(Debug, Clone, PartialEq)]
-pub enum MessageError {
-    DirectConnectionDoNotWork(u64, NodeId),
-    ServerUnreachable(u64, NodeId),
-    NoFragmentWrapper(u64),
-    InvalidMessageReceived(u64),
-    InvalidFragmentIndex(u64, u64),
-    MessageNotComplete,
 }
 
 // ------------------------------ HIGH MESSAGE
@@ -165,25 +153,28 @@ impl RecvMessageWrapper {
     ///
     /// ```
     /// let mut recv = RecvMessageWrapper::new(session_id, source, total_fragments);
-    /// // recv.add_fragment(...); // add all fragments
-    /// if recv.is_all_fragments_arrived() {
-    ///     let msg: ChatRequest = recv.try_deserialize().unwrap();
+    /// recv.add_fragment(fragment1);
+    /// recv.add_fragment(fragment2);
+    /// // ...add all fragments
+    ///
+    /// if let Some(msg) = recv.try_deserialize::<ChatRequest>() {
+    ///     // use msg
     /// }
     /// ```
-    pub fn try_deserialize<T: DroneSend>(&mut self) -> Result<T, MessageError> {
-        self.try_generate_raw_data()?;
-        DroneSend::from_string(self.raw_data.clone())
-            .map_err(|_| MessageError::InvalidMessageReceived(self.session_id))
+    pub fn try_deserialize<T: DroneSend>(&mut self) -> Option<T> {
+        if !self.try_generate_raw_data() {
+            return None;
+        }
+        DroneSend::from_string(self.raw_data.clone()).ok()
     }
 
-    pub fn try_generate_raw_data(&mut self) -> Result<(), MessageError> {
+    /// Generate self.raw_data if is possible
+    pub fn try_generate_raw_data(&mut self) -> bool {
         if !self.is_all_fragments_arrived() {
-            return Err(MessageError::MessageNotComplete);
+            return false;
         }
 
-        let full_message: Vec<u8> = self
-            .fragments
-            .iter()
+        let full_message: Vec<u8> = self.fragments.iter()
             .flat_map(|frag| {
                 frag.as_ref()
                     .map(|f| f.data[..f.length as usize].to_vec())
@@ -191,13 +182,12 @@ impl RecvMessageWrapper {
             })
             .collect();
 
-        // funziona anche con i ?
         match String::from_utf8(full_message) {
             Ok(raw_data) => {
                 self.raw_data = raw_data;
-                Ok(())
+                true
             }
-            Err(_) => Err(MessageError::InvalidMessageReceived(self.session_id)),
+            Err(_) => false,
         }
     }
 }
