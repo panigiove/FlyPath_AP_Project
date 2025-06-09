@@ -139,11 +139,18 @@ impl RecvMessageWrapper {
         self.arrived.len() as u64 == self.total_n_fragments
     }
 
-    pub fn add_fragment(&mut self, fragment: Fragment) {
+    pub fn add_fragment(&mut self, fragment: Fragment) -> bool {
         if fragment.fragment_index < self.total_n_fragments {
             let index = fragment.fragment_index;
+            if self.arrived.contains(&index) {
+                return false;
+            }
+
             self.arrived.insert(index);
             self.fragments[index as usize] = Some(fragment);
+            true
+        } else {
+            false
         }
     }
 
