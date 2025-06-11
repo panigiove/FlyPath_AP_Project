@@ -185,7 +185,7 @@ impl RecvMessageWrapper {
             .flat_map(|frag| {
                 frag.as_ref()
                     .map(|f| f.data[..f.length as usize].to_vec())
-                    .unwrap_or_else(|| Vec::new())
+                    .unwrap_or_default()
             })
             .collect();
 
