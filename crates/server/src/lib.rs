@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use message::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::MAX;
+use std::ops::DerefMut;
 use wg_2024::network::*;
 use wg_2024::packet::{FloodRequest, Fragment, NackType, NodeType, Packet, PacketType};
 /*pub trait Server {
@@ -57,7 +58,7 @@ pub struct ChatServer {
 
     pub topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
     //da rivedere
-    pub incoming_fragments: HashMap<(u64, NodeId), (Vec<u8>, u64)>,
+    pub incoming_fragments: HashMap<(u64, NodeId), RecvMessageWrapper>,
     pub outgoing_packets: HashMap<u64, HashSet<Packet>>,
 }
 
@@ -119,14 +120,16 @@ impl ChatServer {
             PacketType::MsgFragment(fragment) => {
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
                 if !self.incoming_fragments.contains_key(key) {
-                    self.incoming_fragments
-                        .insert((packet.session_id, packet.routing_header.source().unwrap()), (Vec::with_capacity(fragment.total_n_fragments as usize * 128), 0));
-                } 
-                let (_, right) = self.incoming_fragments.get_mut(key).unwrap().0.split_at_mut(fragment.fragment_index as usize*128); //questa funzione potrebbe non andare bene
-                    right.copy_from_slice(fragment.data.as_slice());
-                    right.iter()
-                    
-                    if  {
+                    self.incoming_fragments.insert(*key, RecvMessageWrapper::new(packet.session_id, packet.routing_header.source().unwrap(), fragment.total_n_fragments));
+                    self.incoming_fragments.get_mut(key).unwrap().add_fragment(fragment);
+                }
+                else {
+                    self.incoming_fragments.get_mut(key).unwrap().add_fragment(fragment);
+                }
+                
+                if self.incoming_fragments.get(key).unwrap().is_all_fragments_arrived() {
+                    let message = self.incoming_fragments.get(key).unwrap().try_deserialize().unwrap();
+                    process_message(message);
                 }
             }
             //da completare, mancano controlli

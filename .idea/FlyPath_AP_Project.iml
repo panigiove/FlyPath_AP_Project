@@ -10,6 +10,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/server/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/server_temp/server/MediaServer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/server_temp/server/src/ChatServer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/assets/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
