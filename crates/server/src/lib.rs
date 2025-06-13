@@ -4,8 +4,7 @@ use message::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::MAX;
 use wg_2024::network::*;
-use wg_2024::packet::NodeType::{Client, Server};
-use wg_2024::packet::{FloodRequest, NackType, NodeType, Packet, PacketType};
+use wg_2024::packet::{FloodRequest, Fragment, NackType, NodeType, Packet, PacketType};
 /*pub trait Server {
     type RequestType: Request;
     type ResponseType: Response;
@@ -58,8 +57,8 @@ pub struct ChatServer {
 
     pub topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
     //da rivedere
-    pub incoming_fragments: HashMap<u64, VecDeque<Packet>>,
-    pub outgoing_fragments: HashMap<u64, VecDeque<Packet>>,
+    pub incoming_fragments: HashMap<(u64, NodeId), (Vec<u8>, u64)>,
+    pub outgoing_packets: HashMap<u64, HashSet<Packet>>,
 }
 
 impl ChatServer {
@@ -79,7 +78,7 @@ impl ChatServer {
             last_session_id: 0,
             topology: HashMap::new(),
             incoming_fragments: HashMap::new(),
-            outgoing_fragments: HashMap::new(),
+            outgoing_packets: HashMap::new(),
         }
     }
 
@@ -117,7 +116,19 @@ impl ChatServer {
     fn packet_handler(&mut self, mut packet: Packet) {
         match packet.pack_type {
             //da completare
-            PacketType::MsgFragment(fragment) => {}
+            PacketType::MsgFragment(fragment) => {
+                let key = &(packet.session_id, packet.routing_header.source().unwrap());
+                if !self.incoming_fragments.contains_key(key) {
+                    self.incoming_fragments
+                        .insert((packet.session_id, packet.routing_header.source().unwrap()), (Vec::with_capacity(fragment.total_n_fragments as usize * 128), 0));
+                } 
+                let (_, right) = self.incoming_fragments.get_mut(key).unwrap().0.split_at_mut(fragment.fragment_index as usize*128); //questa funzione potrebbe non andare bene
+                    right.copy_from_slice(fragment.data.as_slice());
+                    right.iter()
+                    
+                    if  {
+                }
+            }
             //da completare, mancano controlli
             PacketType::Ack(ack) => {
                 self.topology
@@ -128,35 +139,62 @@ impl ChatServer {
                     .get_mut(&packet.routing_header.hops[0])
                     .unwrap()
                     .1 += 1.0;
+                self.outgoing_packets
+                    .get_mut(&packet.session_id)
+                    .unwrap()
+                    .retain(|x| {
+                        !(x.session_id == packet.session_id
+                            && x.get_fragment_index() == ack.fragment_index)
+                    })
             }
             //da completare
-            PacketType::Nack(nack) => {}
-            PacketType::FloodRequest(flood_request) => {
-                if let Some((last_nodeId, _)) = flood_request.path_trace.last() {
-                    let updated_flood_request =
-                        flood_request.get_incremented(self.id, NodeType::Server);
-                    let mut response = updated_flood_request.generate_response(packet.session_id);
-                    self.send_packet(&mut response);
+            PacketType::Nack(nack) => {
+                self.topology
+                    .get_mut(&packet.routing_header.hops[0])
+                    .unwrap()
+                    .2 += 1.0;
+                match nack.nack_type {
+                    NackType::DestinationIsDrone => {}
+                    NackType::Dropped => {
+                        //prototipo
+                        let mut packet_to_resend = self
+                            .outgoing_packets
+                            .get(&packet.session_id)
+                            .unwrap()
+                            .iter()
+                            .find(|x| x.get_fragment_index() == nack.fragment_index)
+                            .unwrap()
+                            .clone();
+                        self.send_packet(&mut packet_to_resend);
+                    }
+                    NackType::ErrorInRouting(node) => {}
+                    NackType::UnexpectedRecipient(node) => {}
                 }
             }
-            PacketType::FloodResponse(floodresponse) => {
-                for n in 0..floodresponse.path_trace.len() - 2 {
-                    if !self.topology.contains_key(&floodresponse.path_trace[n].0) {
-                        if floodresponse.path_trace[n].1 == Server
-                            || floodresponse.path_trace[n].1 == Client
+            PacketType::FloodRequest(flood_request) => {
+                let updated_flood_request =
+                    flood_request.get_incremented(self.id, NodeType::Server);
+                let mut response = updated_flood_request.generate_response(packet.session_id);
+                self.send_packet(&mut response);
+            }
+            PacketType::FloodResponse(flood_response) => {
+                for n in 0..flood_response.path_trace.len() - 2 {
+                    if !self.topology.contains_key(&flood_response.path_trace[n].0) {
+                        if flood_response.path_trace[n].1 == NodeType::Server
+                            || flood_response.path_trace[n].1 == NodeType::Client
                         {
                             self.topology
-                                .insert(floodresponse.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
+                                .insert(flood_response.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
                         } else {
                             self.topology
-                                .insert(floodresponse.path_trace[n].0, (HashSet::new(), 0.0, 0.0));
+                                .insert(flood_response.path_trace[n].0, (HashSet::new(), 0.0, 0.0));
                         }
                     }
                     self.topology
-                        .get_mut(&floodresponse.path_trace[n].0)
+                        .get_mut(&flood_response.path_trace[n].0)
                         .unwrap()
                         .0
-                        .insert(floodresponse.path_trace[n + 1].0.clone());
+                        .insert(flood_response.path_trace[n + 1].0.clone());
                 }
             }
         }
@@ -167,22 +205,23 @@ impl ChatServer {
         if let Some(next_hop) = packet.routing_header.current_hop() {
             if let Some(sender) = self.packet_send.get_mut(&next_hop) {
                 if sender.send(packet.clone()).is_err() {
+                    self.flood_initializer(); //da completare
                 } else if let PacketType::MsgFragment(_) = packet.pack_type {
                     let event = NodeEvent::PacketSent(packet.clone());
-
                     self.send_event(event);
                 }
             } else {
+                self.flood_initializer();
             }
         }
     }
     //chiarire flood_id come impostarlo
     fn flood_initializer(&mut self) {
         let request = FloodRequest::initialize(0, self.id, NodeType::Server);
-        let sourcerouting = SourceRoutingHeader::initialize(vec![self.id]);
-        let packet = Packet::new_flood_request(sourcerouting, self.last_session_id, request);
+        let source_routing = SourceRoutingHeader::initialize(vec![self.id]);
+        let packet = Packet::new_flood_request(source_routing, self.last_session_id, request);
         self.last_session_id += 1; //forse non va bene? Non ne ho idea
-        for (node_id, sender) in &self.packet_send {
+        for (_, sender) in &self.packet_send {
             let _ = sender.send(packet.clone());
         }
     }
