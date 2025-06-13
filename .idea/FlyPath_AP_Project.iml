@@ -6,8 +6,10 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/initializer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/message/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/server/ChatServer/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/server/MediaServer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/server/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/server_temp/server/MediaServer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/server_temp/server/src/ChatServer/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
