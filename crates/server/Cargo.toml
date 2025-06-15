@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
 message = { path= "../message" }
-crossbeam-channel = "0.5.13"# Dependency for crossbeam channel
+crossbeam-channel = "0.5.13"
+log = "0.4.27"# Dependency for crossbeam channel

@@ -1,51 +1,17 @@
+mod message;
+mod network;
+
+use crate::message::ServerMessageManager;
+use crate::network::NetworkManager;
+use ::message::NodeEvent::ControllerShortcut;
+use ::message::{NodeCommand, NodeEvent};
 use crossbeam_channel::select_biased;
 use crossbeam_channel::{Receiver, Sender};
-use message::*;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::f64::MAX;
-use std::ops::DerefMut;
+use log::{info, warn};
+use std::collections::HashMap;
+use std::time::Duration;
 use wg_2024::network::*;
-use wg_2024::packet::{FloodRequest, Fragment, NackType, NodeType, Packet, PacketType};
-/*pub trait Server {
-    type RequestType: Request;
-    type ResponseType: Response;
-
-    fn compose_message(
-        source_id: NodeId,
-        session_id: u64,
-        raw_content: String,
-    ) -> Result<Message<Self::RequestType>, String> {
-        let content = Self::RequestType::from_string(raw_content)?;
-        Ok(Message {
-            session_id,
-            source_id,
-            content,
-        })
-    }
-
-    fn on_request_arrived(&mut self, source_id: NodeId, session_id: u64, raw_content: String) {
-        if raw_content == "ServerType" {
-            let _server_type = Self::get_sever_type();
-            // send response
-            return;
-        }
-        match Self::compose_message(source_id, session_id, raw_content) {
-            Ok(message) => {
-                let response = self.handle_request(message.content);
-                self.send_response(response);
-            }
-            Err(str) => panic!("{}", str),
-        }
-    }
-
-    fn send_response(&mut self, _response: Self::ResponseType) {
-        // send response
-    }
-
-    fn handle_request(&mut self, request: Self::RequestType) -> Self::ResponseType;
-
-    fn get_sever_type() -> ServerType;
-}*/
+use wg_2024::packet::{FloodRequest, NodeType, Packet, PacketType};
 
 #[derive(Clone, Debug)]
 pub struct ChatServer {
@@ -56,10 +22,8 @@ pub struct ChatServer {
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub last_session_id: u64,
 
-    pub topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
-    //da rivedere
-    pub incoming_fragments: HashMap<(u64, NodeId), RecvMessageWrapper>,
-    pub outgoing_packets: HashMap<u64, HashSet<Packet>>,
+    pub network_manager: NetworkManager,
+    pub server_message_manager: ServerMessageManager,
 }
 
 impl ChatServer {
@@ -77,13 +41,14 @@ impl ChatServer {
             packet_recv,
             packet_send,
             last_session_id: 0,
-            topology: HashMap::new(),
-            incoming_fragments: HashMap::new(),
-            outgoing_packets: HashMap::new(),
+            network_manager: NetworkManager::new(id, Duration::new(10, 0)),
+            server_message_manager: ServerMessageManager::new(),
         }
     }
 
     fn run(&mut self) {
+        self.flood_initializer();
+
         loop {
             select_biased! {
                 recv(self.controller_recv) -> packet =>{
@@ -104,9 +69,12 @@ impl ChatServer {
         match packet {
             NodeCommand::AddSender(id, sender) => {
                 self.packet_send.insert(id, sender);
+                self.flood_initializer();
             }
             NodeCommand::RemoveSender(id) => {
                 self.packet_send.remove(&id);
+                self.network_manager.remove_node(id);
+                self.network_manager.generate_all_routes();
             }
             NodeCommand::FromShortcut(pack) => {
                 self.packet_handler(pack);
@@ -114,64 +82,73 @@ impl ChatServer {
         }
     }
 
-    fn packet_handler(&mut self, mut packet: Packet) {
+    fn packet_handler(&mut self, packet: Packet) {
         match packet.pack_type {
             //da completare
             PacketType::MsgFragment(fragment) => {
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
-                if !self.incoming_fragments.contains_key(key) {
-                    self.incoming_fragments.insert(*key, RecvMessageWrapper::new(packet.session_id, packet.routing_header.source().unwrap(), fragment.total_n_fragments));
-                    self.incoming_fragments.get_mut(key).unwrap().add_fragment(fragment);
+                if !self.server_message_manager.is_registered(&key.1) {
+                    warn!("Client {} not registered", key.1);
+                    return;
                 }
-                else {
-                    self.incoming_fragments.get_mut(key).unwrap().add_fragment(fragment);
-                }
-                
-                if self.incoming_fragments.get(key).unwrap().is_all_fragments_arrived() {
-                    let message = self.incoming_fragments.get(key).unwrap().try_deserialize().unwrap();
-                    process_message(message);
-                }
-            }
-            //da completare, mancano controlli
-            PacketType::Ack(ack) => {
-                self.topology
-                    .get_mut(&packet.routing_header.hops[0])
-                    .unwrap()
-                    .2 += 1.0;
-                self.topology
-                    .get_mut(&packet.routing_header.hops[0])
-                    .unwrap()
-                    .1 += 1.0;
-                self.outgoing_packets
-                    .get_mut(&packet.session_id)
-                    .unwrap()
-                    .retain(|x| {
-                        !(x.session_id == packet.session_id
-                            && x.get_fragment_index() == ack.fragment_index)
-                    })
-            }
-            //da completare
-            PacketType::Nack(nack) => {
-                self.topology
-                    .get_mut(&packet.routing_header.hops[0])
-                    .unwrap()
-                    .2 += 1.0;
-                match nack.nack_type {
-                    NackType::DestinationIsDrone => {}
-                    NackType::Dropped => {
-                        //prototipo
-                        let mut packet_to_resend = self
-                            .outgoing_packets
-                            .get(&packet.session_id)
-                            .unwrap()
-                            .iter()
-                            .find(|x| x.get_fragment_index() == nack.fragment_index)
-                            .unwrap()
-                            .clone();
-                        self.send_packet(&mut packet_to_resend);
+
+                if self.server_message_manager.are_all_fragment_arrived(key) {
+                    let recv_msg = self.server_message_manager.get_incoming_fragments(key).unwrap();
+                    info!("Message {:?} received", recv_msg);
+                    self.send_event(NodeEvent::MessageRecv(recv_msg));
+                    
+                    if let Some(wrapper) =
+                        self.server_message_manager.message_handling(&key, fragment)
+                    {
+                        self.send_event(NodeEvent::CreateMessage(wrapper.clone()));
+                        for frag in wrapper.fragments {
+                            self.send_packet(&mut Packet {
+                                routing_header: SourceRoutingHeader::initialize(
+                                    self.network_manager
+                                        .get_route(&wrapper.destination)
+                                        .unwrap(),
+                                ),
+                                session_id: wrapper.session_id, //todo decidere come metterci il last_session_id
+                                pack_type: PacketType::MsgFragment(frag),
+                            })
+                        }
                     }
-                    NackType::ErrorInRouting(node) => {}
-                    NackType::UnexpectedRecipient(node) => {}
+                }
+            }
+            //da completare, mancano controlli (?)
+            PacketType::Ack(ack) => {
+                self.network_manager
+                    .update_from_ack(packet.routing_header.source().unwrap());
+                self.server_message_manager
+                    .insert_ack(ack, &packet.session_id);
+            }
+            //da controllare
+            PacketType::Nack(nack) => {
+                self.network_manager
+                    .update_from_nack(packet.routing_header.hops[0], nack.clone());
+
+                let wrapper = self
+                    .server_message_manager
+                    .get_outgoing_packet(&packet.session_id)
+                    .unwrap();
+                let fragment_to_resend =
+                    wrapper.get_fragment(nack.fragment_index as usize).unwrap();
+                let mut packet_to_send = Packet {
+                    routing_header: SourceRoutingHeader::initialize(
+                        self.network_manager
+                            .routes
+                            .get(&wrapper.destination)
+                            .unwrap()
+                            .clone(),
+                    ),
+                    session_id: wrapper.session_id,
+                    pack_type: PacketType::MsgFragment(fragment_to_resend),
+                };
+
+                self.send_packet(&mut packet_to_send);
+
+                if self.network_manager.should_flood_request() {
+                    self.flood_initializer();
                 }
             }
             PacketType::FloodRequest(flood_request) => {
@@ -181,39 +158,40 @@ impl ChatServer {
                 self.send_packet(&mut response);
             }
             PacketType::FloodResponse(flood_response) => {
-                for n in 0..flood_response.path_trace.len() - 2 {
-                    if !self.topology.contains_key(&flood_response.path_trace[n].0) {
-                        if flood_response.path_trace[n].1 == NodeType::Server
-                            || flood_response.path_trace[n].1 == NodeType::Client
-                        {
-                            self.topology
-                                .insert(flood_response.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
-                        } else {
-                            self.topology
-                                .insert(flood_response.path_trace[n].0, (HashSet::new(), 0.0, 0.0));
-                        }
-                    }
-                    self.topology
-                        .get_mut(&flood_response.path_trace[n].0)
-                        .unwrap()
-                        .0
-                        .insert(flood_response.path_trace[n + 1].0.clone());
-                }
+                self.network_manager
+                    .update_from_flood_response(flood_response);
             }
         }
     }
-    //da modificare
+    //da modificare: non gestisco il caso in cui il drone o il sender siano non raggiungibili e il messaggio rimane nel buffer
     fn send_packet(&mut self, packet: &mut Packet) {
         packet.routing_header.increase_hop_index();
         if let Some(next_hop) = packet.routing_header.current_hop() {
             if let Some(sender) = self.packet_send.get_mut(&next_hop) {
                 if sender.send(packet.clone()).is_err() {
-                    self.flood_initializer(); //da completare
-                } else if let PacketType::MsgFragment(_) = packet.pack_type {
+                    warn!("Failed to send packet, Drone {} unreachable", next_hop);
+                    //self.network_manager.update_errors();
+                    match packet.pack_type {
+                        PacketType::Ack(_) | PacketType::FloodResponse(_) => {
+                            self.send_event(ControllerShortcut(packet.clone()));
+                        }
+                        _ => {
+                            //todo (?)
+                        }
+                    }
+
+                    self.network_manager.remove_node(next_hop);
+                    self.network_manager.generate_all_routes();
+
+                    self.flood_initializer();
+                } else {
+                    info!("Packet with session id {} sent successfully to {}", packet.session_id, next_hop);
                     let event = NodeEvent::PacketSent(packet.clone());
                     self.send_event(event);
                 }
             } else {
+                warn!("Sender for {} drone is unreachable", next_hop);
+                self.network_manager.remove_adj(next_hop);
                 self.flood_initializer();
             }
         }
@@ -228,92 +206,9 @@ impl ChatServer {
             let _ = sender.send(packet.clone());
         }
     }
-    //da modificare (i client e gli altri server non hanno pdp!!)
-    fn calculate_path(&self, node_id: NodeId) -> Vec<NodeId> {
-        let mut path = vec![0, self.id];
-        let mut psp = HashMap::new();
-        let mut dist = HashMap::new();
-        let mut prev = HashMap::new();
-        let mut queue = VecDeque::new();
-        let mut current_node;
-
-        for node in self.topology.keys() {
-            let prob = self.topology.get(node).unwrap().1 / self.topology.get(node).unwrap().2;
-            psp.insert(*node, -prob.ln());
-            dist.insert(*node, MAX);
-        }
-
-        for node in self.topology.get(&self.id).unwrap().0.iter() {
-            queue.push_back(*node);
-        }
-
-        dist.insert(self.id, *psp.get(&self.id).unwrap());
-
-        while !queue.is_empty() {
-            current_node = queue.pop_front().unwrap();
-
-            for vec_node_id in self.topology.get(&current_node).unwrap().0.iter() {
-                if dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap()
-                    < *dist.get(&vec_node_id).unwrap()
-                {
-                    dist.insert(
-                        *vec_node_id,
-                        dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap(),
-                    );
-                    prev.insert(*vec_node_id, current_node);
-                    queue.push_back(*vec_node_id);
-                }
-            }
-        }
-
-        current_node = node_id;
-        while prev.get(&current_node).unwrap() != &self.id {
-            path.push(current_node);
-            current_node = *prev.get(&current_node).unwrap();
-        }
-
-        path.push(self.id);
-        path.reverse();
-
-        path
-    }
-
-    fn packet_assembler() {}
-
     fn send_event(&self, event: NodeEvent) {
         if self.controller_send.send(event).is_err() {
             panic!("Controller is unreaceable");
         }
     }
 }
-
-/*impl Server for ChatServer {
-    type RequestType = ChatRequest;
-    type ResponseType = ChatResponse;
-
-    fn handle_request(&mut self, request: Self::RequestType) -> Self::ResponseType {
-        match request {
-            ChatRequest::ClientList => {
-                println!("Sending ClientList");
-                ChatResponse::ClientList(vec![1, 2])
-            }
-            ChatRequest::Register(id) => {
-                println!("Registering {}", id);
-                ChatResponse::ClientList(vec![1, 2])
-            }
-            ChatRequest::SendMessage {
-                message,
-                to,
-                from: _,
-            } => {
-                println!("Sending message \"{}\" to {}", message, to);
-                // effectively forward message
-                ChatResponse::MessageSent
-            }
-        }
-    }
-
-    fn get_sever_type() -> ServerType {
-        ServerType::Chat
-    }
-}*/
