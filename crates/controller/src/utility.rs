@@ -25,7 +25,7 @@ pub enum Operation{
     RemoveSender
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Copy)]
 pub enum NodeType{
     Drone,
     Server,
@@ -74,4 +74,4 @@ pub enum DroneGroup{
     LeDronJames,
     RustyDrones,
 }
-type NodePayload = (NodeId, wg_2024::packet::NodeType);
+type NodePayload = (NodeId, NodeType);

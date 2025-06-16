@@ -1,6 +1,5 @@
-
 use crossbeam_channel::{select, select_biased, Receiver, Sender, unbounded};
-use eframe::epaint::Color32;
+use eframe::egui::Color32;
 use eframe::Frame;
 use egui::{Context, TopBottomPanel};
 use egui::RichText;
@@ -31,13 +30,16 @@ impl MessagesWindow{
                     match line{
                         MessageType::Error(t) => {
                             //TODO convertire colori da ff a rgb
-                            let text = RichText::new(t).color(Color32::from_rgb(255, 128, 0));
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 128, 0));
                             ui.label(text);
                         }
                         MessageType::Ok(t) => {
                             //TODO convertire colori da ff a rgb
-                            let text = RichText::new(t).color(Color32::from_rgb(255, 128, 0));
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 128, 0));
                             ui.label(text);
+                        }
+                        _ =>{
+                            
                         }
                     }
 
