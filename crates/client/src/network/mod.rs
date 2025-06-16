@@ -5,7 +5,7 @@ use crate::channel::ChannelManager;
 use log::{debug, error, info, warn};
 use message::NodeEvent::PacketSent;
 use petgraph::algo::dijkstra;
-use petgraph::graph::{NodeIndex, UnGraph};
+use petgraph::graph::{Graph, NodeIndex};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -20,7 +20,7 @@ const NEW_STATE_GRACE_PERIOD: Duration = Duration::from_secs(3); // TODO: is too
 
 #[derive(Clone)]
 pub struct NetworkState {
-    topology: UnGraph<NodeId, Weight>,
+    topology: Graph<NodeId, Weight>,
     id_to_idx: HashMap<NodeId, NodeIndex>,
     start_idx: NodeIndex,
     pub server_list: HashSet<NodeId>,
@@ -41,7 +41,7 @@ impl NetworkState {
         error_scale: u32,
         drop_scale: u32,
     ) -> Self {
-        let mut topology = UnGraph::<NodeId, Weight>::new_undirected();
+        let mut topology = Graph::<NodeId, Weight>::new();
         let idx = topology.add_node(start_id);
         let mut id_to_idx = HashMap::new();
         id_to_idx.insert(start_id, idx);
@@ -129,7 +129,21 @@ impl NetworkState {
             self.server_list.insert(b);
         }
 
-        self.topology.update_edge(a_idx, b_idx, weight);
+        match (a_type, b_type) {
+            (NodeType::Drone, NodeType::Drone)
+            | (NodeType::Client, NodeType::Drone)
+            | (NodeType::Drone, NodeType::Client) => {
+                self.topology.add_edge(a_idx, b_idx, weight);
+                self.topology.add_edge(b_idx, a_idx, weight);
+            }
+            (NodeType::Drone, NodeType::Server) => {
+                self.topology.add_edge(a_idx, b_idx, weight);
+            }
+            (NodeType::Server, NodeType::Drone) => {
+                self.topology.add_edge(b_idx, a_idx, weight);
+            }
+            _ => {}
+        }
     }
 
     /// Add node to `topology` and `id_to_idx`
@@ -166,8 +180,8 @@ impl NetworkState {
 
     pub fn increment_weight_around_node(&mut self, nid: &NodeId, increment: i32) {
         if let Some(&node_idx) = self.id_to_idx.get(nid) {
-            let neighbors: Vec<_> = self.topology.neighbors(node_idx).collect();
-            for neighbor_idx in neighbors {
+            let outgoing_neighbors: Vec<_> = self.topology.neighbors(node_idx).collect();
+            for neighbor_idx in outgoing_neighbors {
                 if let Some(edge_idx) = self.topology.find_edge(node_idx, neighbor_idx) {
                     if let Some(&current_weight) = self.topology.edge_weight(edge_idx) {
                         let new_weight = if increment >= 0 {
@@ -182,6 +196,27 @@ impl NetworkState {
                         };
                         self.topology
                             .update_edge(node_idx, neighbor_idx, new_weight);
+                    }
+                }
+            }
+
+            let all_nodes: Vec<_> = self.topology.node_indices().collect();
+            for other_idx in all_nodes {
+                if other_idx != node_idx {
+                    if let Some(edge_idx) = self.topology.find_edge(other_idx, node_idx) {
+                        if let Some(&current_weight) = self.topology.edge_weight(edge_idx) {
+                            let new_weight = if increment >= 0 {
+                                current_weight.saturating_add(increment as u32)
+                            } else {
+                                let decrement = (-increment) as u32;
+                                if current_weight > decrement {
+                                    current_weight - decrement
+                                } else {
+                                    1
+                                }
+                            };
+                            self.topology.update_edge(other_idx, node_idx, new_weight);
+                        }
                     }
                 }
             }
@@ -275,27 +310,31 @@ impl NetworkState {
         let mut path = Vec::new();
         let mut current = target_idx;
         let mut visited = HashSet::new();
+
         while current != self.start_idx {
             if !visited.insert(current) {
                 return None;
             }
             path.push(self.topology[current]);
+
             let mut best_prev = None;
             let mut best_distance = u32::MAX;
-            for neighbor in self.topology.neighbors(current) {
-                if let Some(&neighbor_dist) = distances.get(&neighbor) {
-                    if let Some(edge) = self.topology.find_edge(neighbor, current) {
-                        if let Some(&edge_weight) = self.topology.edge_weight(edge) {
-                            if neighbor_dist + edge_weight < best_distance {
-                                best_distance = neighbor_dist + edge_weight;
-                                best_prev = Some(neighbor);
+            for node_idx in self.topology.node_indices() {
+                if let Some(edge_idx) = self.topology.find_edge(node_idx, current) {
+                    if let Some(&edge_weight) = self.topology.edge_weight(edge_idx) {
+                        if let Some(&node_dist) = distances.get(&node_idx) {
+                            if node_dist + edge_weight < best_distance {
+                                best_distance = node_dist + edge_weight;
+                                best_prev = Some(node_idx);
                             }
                         }
                     }
                 }
             }
+
             current = best_prev?;
         }
+
         path.push(self.topology[self.start_idx]);
         path.reverse();
         Some(path)
