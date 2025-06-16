@@ -973,6 +973,7 @@ dependencies = [
  "LeDron_James",
  "ap2024_rustinpeace_nosounddrone",
  "bagel_bomber",
+ "client",
  "crossbeam-channel",
  "eframe 0.29.1",
  "egui 0.31.1",
@@ -994,6 +995,7 @@ dependencies = [
  "rustbusters-drone",
  "rusty_drones",
  "serde_json",
+ "server",
  "wg_2024",
 ]
 

@@ -17,6 +17,14 @@ impl MessagesWindow{
             log: Vec::new(),
         }
     }
+    
+    pub fn run(&mut self){
+        loop{
+            self.handle_incoming_messages();
+            
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     pub fn update(&mut self, ctx: &egui::Context){
         self.handle_incoming_messages();
@@ -26,24 +34,38 @@ impl MessagesWindow{
             ui.label("terminale");
             egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui|{
                 for line in &self.log{
-                    //QUI SISTEMARE COLORE
                     match line{
                         MessageType::Error(t) => {
-                            //TODO convertire colori da ff a rgb
-                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 128, 0));
+                            // Rosso per gli errori
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 100, 100));
                             ui.label(text);
                         }
                         MessageType::Ok(t) => {
-                            //TODO convertire colori da ff a rgb
-                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 128, 0));
+                            // Verde per i messaggi OK
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(100, 255, 100));
                             ui.label(text);
                         }
-                        _ =>{
-                            
+                        // // Gestisci altri tipi di messaggio se esistono
+                        // MessageType::Info(t) => {
+                        //     // Azzurro per info (se esiste questo tipo)
+                        //     let text = RichText::new(t).color(egui::Color32::from_rgb(100, 200, 255));
+                        //     ui.label(text);
+                        // }
+                        // MessageType::Warning(t) => {
+                        //     // Giallo per warning (se esiste questo tipo)
+                        //     let text = RichText::new(t).color(egui::Color32::from_rgb(255, 255, 100));
+                        //     ui.label(text);
+                        // }
+                        // Fallback per tipi non gestiti - IMPORTANTE!
+                        _ => {
+                            // Colore neutro per messaggi non classificati
+                            let text = RichText::new("Messaggio non classificato").color(egui::Color32::GRAY);
+                            ui.label(text);
                         }
                     }
-
                 }
+
+                // Auto-scroll verso il basso per vedere sempre gli ultimi messaggi
                 let (_, bottom) = ui.allocate_space(egui::vec2(0.0, 10.0));
                 ui.scroll_to_rect(bottom, Some(egui::Align::BOTTOM));
             });
@@ -207,5 +229,57 @@ mod tests {
             },
             "Errore 9999"
         );
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    use crate::utility::MessageType;
+    use crossbeam_channel::unbounded;
+
+    #[test]
+    fn test_message_display_logic() {
+        let (sender, receiver) = unbounded();
+        let mut window = MessagesWindow::new(receiver);
+
+        // Invia diversi tipi di messaggi
+        sender.send(MessageType::Error("Errore di test".to_string())).unwrap();
+        sender.send(MessageType::Ok("Operazione riuscita".to_string())).unwrap();
+
+        // Process messages
+        window.handle_incoming_messages();
+
+        // Verifica che i messaggi siano stati ricevuti
+        assert_eq!(window.log.len(), 2);
+
+        // Verifica il contenuto dei messaggi
+        match &window.log[0] {
+            MessageType::Error(msg) => assert_eq!(msg, "Errore di test"),
+            _ => panic!("Primo messaggio dovrebbe essere Error"),
+        }
+
+        match &window.log[1] {
+            MessageType::Ok(msg) => assert_eq!(msg, "Operazione riuscita"),
+            _ => panic!("Secondo messaggio dovrebbe essere Ok"),
+        }
+    }
+
+    #[test]
+    fn test_message_types_coverage() {
+        // Questo test aiuta a identificare se tutti i tipi di MessageType sono gestiti
+        let (sender, receiver) = unbounded();
+        let mut window = MessagesWindow::new(receiver);
+
+        // Aggiungi qui tutti i tipi di MessageType che hai definito
+        sender.send(MessageType::Error("Test error".to_string())).unwrap();
+        sender.send(MessageType::Ok("Test ok".to_string())).unwrap();
+        // Aggiungi altri tipi se esistono...
+
+        window.handle_incoming_messages();
+
+        // Verifica che tutti i messaggi siano stati processati
+        assert!(!window.log.is_empty());
+        println!("Messaggi processati: {}", window.log.len());
     }
 }

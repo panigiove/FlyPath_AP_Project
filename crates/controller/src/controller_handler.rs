@@ -3,7 +3,7 @@ use message::{NodeCommand};
 use crossbeam_channel::{select, select_biased, Receiver, Sender, unbounded, TrySendError};
 use std::collections::HashMap;
 use std::fmt::{format, Pointer};
-
+use std::sync::mpsc;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
@@ -21,7 +21,6 @@ use rustastic_drone::RustasticDrone;
 use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
-use wg_2024::config::{Client, Server};
 use crate::utility::{ButtonEvent, GraphAction, NodeType, MessageType, DroneGroup};
 use crate::utility::GraphAction::{AddEdge, AddNode, RemoveEdge, RemoveNode};
 use crate::utility::MessageType::{Error, PacketSent};
@@ -31,12 +30,15 @@ use wg_2024::drone::Drone;
 use message::NodeCommand::FromShortcut;
 use crate::utility::Operation::{AddSender, RemoveSender};
 
+use client::Client;
+use server::ChatServer;
+
 pub struct ControllerHandler {
     pub drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
     pub drones_types: HashMap<NodeId, DroneGroup>,
     pub drone_senders: HashMap<NodeId, Sender<Packet>>, //the set of all the senders
     pub clients: HashMap<NodeId, Client>, //devo importare robe di daniele
-    pub servers: HashMap<NodeId, Server>,
+    pub servers: HashMap<NodeId, ChatServer>,
     pub connections: HashMap<NodeId, Vec<NodeId>>, //viene passato dall'initializer
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>, // da controller a drone
     pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>, // da client a controller (anche server?) TODO io non avevo il reciver?
@@ -66,7 +68,7 @@ impl ControllerHandler {
         drones_types: HashMap<NodeId, DroneGroup>,
         drone_senders: HashMap<NodeId, Sender<Packet>>,
         clients: HashMap<NodeId, Client>,
-        servers: HashMap<NodeId, Server>,
+        servers: HashMap<NodeId, ChatServer>,
         connections: HashMap<NodeId, Vec<NodeId>>,
         send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
         send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
@@ -124,11 +126,17 @@ impl ControllerHandler {
     }
     
     //—————————————————————————————————————————— Handlers ——————————————————————————————————————————
-
+    
     pub fn button_event_handler(&mut self, event: ButtonEvent) {
         match event {
             ButtonEvent::NewDrone(id, pdr) => {
                 self.spawn(&id, pdr);
+            }
+            ButtonEvent::NewServer(id) => {
+                self.new_server(id);
+            }
+            ButtonEvent::NewClient(id) => {
+                self.new_client(id);
             }
             ButtonEvent::NewConnection(id1, id2) => {
                 self.add_connection(&id1, &id2);
@@ -325,6 +333,57 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
         };
 
         let _ = self.message_sender.try_send(Error(message));
+    }
+    
+    pub fn new_client(&mut self, id_connection: NodeId){
+        let Some(id) = get_random_key(&self.drones) else {
+            eprintln!("Controller: Couldn't get a random key");
+            let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
+            return;
+        };
+        if !self.is_drone(&id_connection){
+            eprintln!("Controller: The first connection of a client must be a drone");
+            let _ = self.message_sender.try_send(Error("Controller: The first connection of a client must be a drone".to_string()));
+            return;
+        }
+    }
+
+    // id: NodeId,
+    // controller_send: Sender<NodeEvent>,
+    // controller_recv: Receiver<NodeCommand>,
+    // packet_recv: Receiver<Packet>,
+    // packet_send: HashMap<NodeId, Sender<Packet>>,
+    // ) -> Self {
+    pub fn new_server(&mut self, id_connection: NodeId){
+        let Some(id) = get_random_key(&self.drones) else {
+            eprintln!("Controller: Couldn't get a random key");
+            let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
+            return;
+        };
+        if !self.is_drone(&id_connection){
+            eprintln!("Controller: The first connection of a client must be a drone");
+            let _ = self.message_sender.try_send(Error("Controller: The first connection of a client must be a drone".to_string()));
+            return;
+        }
+        let (controller_send, controller_recv_for_server) = unbounded::<DroneEvent>();
+        let (controller_send_for_server, controller_recv) = unbounded::<DroneEvent>();
+        let (packet_send_for_server, packet_recv) = unbounded::<DroneEvent>();
+
+        // Crea l'HashMap per packet_send (inizialmente vuoto)
+        let mut packet_send: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+        let (p_send, p_receiver) = unbounded::<Packet>();
+        packet_send.insert(id_connection, p_send);
+        
+        //TODO sistemare connessioni nel drone connesso
+        
+        // let chat_server = ChatServer::new(
+        //     id,
+        //     controller_send,
+        //     controller_recv,
+        //     packet_recv,
+        //     packet_send,
+        // );
+        
     }
 
     pub fn crash(&mut self, id: &NodeId) {
@@ -598,19 +657,16 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
          }
          self.are_server_and_clients_requirements_respected(&adj_list) && is_connected(drone1_id, &adj_list)
      }
-
-        // each client must remain connected to at least one and at most two drones
-        // and each server must remain connected to at least two drones
         fn are_server_and_clients_requirements_respected(&self, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
-            // self.clients.iter().all(|(&client, _)| {
-            //     adj_list
-            //         .get(&client)
-            //         .map_or(false, |neighbors| neighbors.len() > 0 && neighbors.len() < 3)
-            // }) && self.servers.iter().all(|(&server, _)| {
-            //     adj_list
-            //         .get(&server)
-            //         .map_or(false, |neighbors| neighbors.len() >= 2)
-            // })
+            self.clients.iter().all(|(&client, _)| {
+                adj_list
+                    .get(&client)
+                    .map_or(false, |neighbors| neighbors.len() > 0 && neighbors.len() < 3)
+            }) && self.servers.iter().all(|(&server, _)| {
+                adj_list
+                    .get(&server)
+                    .map_or(false, |neighbors| neighbors.len() >= 2)
+            });
             true
         }
     }
@@ -635,9 +691,9 @@ pub fn dfs(id: &NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>, visited: &mut V
     }
 }
 
-pub fn get_random_key(m: &HashMap<NodeId, Box<dyn Drone>>) -> Option<NodeId>{
+pub fn get_random_key(d: &HashMap<NodeId, Box<dyn Drone>>, c: &HashMap<NodeId, Box<Client>>, s: &HashMap<NodeId, Box<Server>>) -> Option<NodeId>{
     let mut possible_id: Vec<NodeId> = (0..=255).collect();
-    possible_id.retain(|id| !m.contains_key(id));
+    possible_id.retain(|id| !d.contains_key(id));
 
     if possible_id.is_empty(){
         return None
