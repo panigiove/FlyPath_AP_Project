@@ -74,3 +74,4 @@ pub enum DroneGroup{
     LeDronJames,
     RustyDrones,
 }
+type NodePayload = (NodeId, wg_2024::packet::NodeType);
