@@ -26,25 +26,30 @@ pub fn parse_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigError> {
 
 //checks if the Network Initialization File meets the needed requirements
 fn validate(cfg: &Config) -> Result<(), ConfigError> {
-
     are_ids_unique(cfg)?;
-    
+
     check_drone_requirement(cfg)?;
-    
+
     check_client_requirements(cfg)?;
-    
+
     check_server_requirements(cfg)?;
-    
-    if !is_connected(cfg){
-        return Err(ConfigError::Validation("The graph is not connected".to_string()))
+
+    if !is_connected(cfg) {
+        return Err(ConfigError::Validation(
+            "The graph is not connected".to_string(),
+        ));
     }
 
-    if !is_bidirectional(cfg){
-        return Err(ConfigError::Validation("The graph is not bidirectional".to_string()))
+    if !is_bidirectional(cfg) {
+        return Err(ConfigError::Validation(
+            "The graph is not bidirectional".to_string(),
+        ));
     }
 
-    if !are_client_server_at_edge(cfg){
-        return Err(ConfigError::Validation("Clients and/ or severs aren't at the edge of the network".to_string()))
+    if !are_client_server_at_edge(cfg) {
+        return Err(ConfigError::Validation(
+            "Clients and/ or severs aren't at the edge of the network".to_string(),
+        ));
     }
 
     Ok(())
@@ -118,27 +123,35 @@ fn is_connected(config: &Config) -> bool {
 }
 
 //The Network Initialization File should represent a bidirectional graph
-fn is_bidirectional(cfg: &Config) -> bool{
-    let mut edges:HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
+fn is_bidirectional(cfg: &Config) -> bool {
+    let mut edges: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
 
-    for drone in &cfg.drone{
-        edges.entry(drone.id).or_insert_with(HashSet::new).extend(&drone.connected_node_ids);
+    for drone in &cfg.drone {
+        edges
+            .entry(drone.id)
+            .or_insert_with(HashSet::new)
+            .extend(&drone.connected_node_ids);
     }
-    for client in &cfg.client{
-        edges.entry(client.id).or_insert_with(HashSet::new).extend(&client.connected_drone_ids);
+    for client in &cfg.client {
+        edges
+            .entry(client.id)
+            .or_insert_with(HashSet::new)
+            .extend(&client.connected_drone_ids);
     }
-    for server in &cfg.server{
-        edges.entry(server.id).or_insert_with(HashSet::new).extend(&server.connected_drone_ids);
+    for server in &cfg.server {
+        edges
+            .entry(server.id)
+            .or_insert_with(HashSet::new)
+            .extend(&server.connected_drone_ids);
     }
-    for (node1, connections1) in &edges{
-        for node2 in connections1{
-            if let Some(connections2) = edges.get(node2){
-                if !connections2.contains(node1){
-                    return false
+    for (node1, connections1) in &edges {
+        for node2 in connections1 {
+            if let Some(connections2) = edges.get(node2) {
+                if !connections2.contains(node1) {
+                    return false;
                 }
-            }
-            else{
-                return false
+            } else {
+                return false;
             }
         }
     }
@@ -149,20 +162,24 @@ fn is_bidirectional(cfg: &Config) -> bool{
 fn are_client_server_at_edge(cfg: &Config) -> bool {
     let drone_ids: std::collections::HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
 
-    let cleaned_drones = cfg.drone.iter().map(|drone| {
-        let filtered_ids = drone
-            .connected_node_ids
-            .iter()
-            .cloned()
-            .filter(|id| drone_ids.contains(id))
-            .collect();
+    let cleaned_drones = cfg
+        .drone
+        .iter()
+        .map(|drone| {
+            let filtered_ids = drone
+                .connected_node_ids
+                .iter()
+                .cloned()
+                .filter(|id| drone_ids.contains(id))
+                .collect();
 
-        Drone {
-            id: drone.id,
-            connected_node_ids: filtered_ids,
-            pdr: drone.pdr,
-        }
-    }).collect();
+            Drone {
+                id: drone.id,
+                connected_node_ids: filtered_ids,
+                pdr: drone.pdr,
+            }
+        })
+        .collect();
 
     let config_only_drones = Config {
         drone: cleaned_drones,
@@ -179,26 +196,35 @@ fn are_ids_unique(cfg: &Config) -> Result<(), ConfigError> {
 
     for drone in &cfg.drone {
         if !seen.insert(drone.id) {
-            return Err(ConfigError::Validation(format!("The id = [{}] is duplicated", drone.id)));
+            return Err(ConfigError::Validation(format!(
+                "The id = [{}] is duplicated",
+                drone.id
+            )));
         }
     }
 
     for client in &cfg.client {
         if !seen.insert(client.id) {
-            return Err(ConfigError::Validation(format!("The id = [{}] is duplicated", client.id)));
+            return Err(ConfigError::Validation(format!(
+                "The id = [{}] is duplicated",
+                client.id
+            )));
         }
     }
 
     for server in &cfg.server {
         if !seen.insert(server.id) {
-            return Err(ConfigError::Validation(format!("The id = [{}] is duplicated", server.id)));
+            return Err(ConfigError::Validation(format!(
+                "The id = [{}] is duplicated",
+                server.id
+            )));
         }
     }
 
     Ok(())
 }
 
-fn check_drone_requirement(cfg: &Config) -> Result<(), ConfigError>{
+fn check_drone_requirement(cfg: &Config) -> Result<(), ConfigError> {
     let all_ids: HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
     let client_ids: HashSet<_> = cfg.client.iter().map(|c| c.id).collect();
     let server_ids: HashSet<_> = cfg.server.iter().map(|s| s.id).collect();
@@ -212,14 +238,14 @@ fn check_drone_requirement(cfg: &Config) -> Result<(), ConfigError>{
                     drone.id, id
                 )));
             }
-            
+
             if drone.id == *id {
                 return Err(ConfigError::Validation(format!(
                     "The drone with id = [{}] cannot be connected to itself",
                     drone.id
                 )));
             }
-            
+
             if !all_ids.contains(id) && !client_ids.contains(id) && !server_ids.contains(id) {
                 return Err(ConfigError::Validation(format!(
                     "The drone with id = [{}] is connected to an unknown node id = [{}]",
@@ -236,12 +262,11 @@ fn check_drone_requirement(cfg: &Config) -> Result<(), ConfigError>{
         //     )));
         // }
     }
-    
+
     Ok(())
 }
 
-fn check_client_requirements(cfg: &Config) -> Result<(), ConfigError>{
-    
+fn check_client_requirements(cfg: &Config) -> Result<(), ConfigError> {
     let drone_ids: HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
     let client_ids: HashSet<_> = cfg.client.iter().map(|c| c.id).collect();
     let server_ids: HashSet<_> = cfg.server.iter().map(|s| s.id).collect();
@@ -264,7 +289,6 @@ fn check_client_requirements(cfg: &Config) -> Result<(), ConfigError>{
                     client.id, id
                 )));
             }
-            
 
             //connected_drone_ids cannot contain repetitions
             if !seen_ids.insert(id) {
@@ -296,7 +320,7 @@ fn check_client_requirements(cfg: &Config) -> Result<(), ConfigError>{
     Ok(())
 }
 
-fn check_server_requirements(cfg: &Config) -> Result<(), ConfigError>{
+fn check_server_requirements(cfg: &Config) -> Result<(), ConfigError> {
     let drone_ids: HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
     let client_ids: HashSet<_> = cfg.client.iter().map(|c| c.id).collect();
     let server_ids: HashSet<_> = cfg.server.iter().map(|s| s.id).collect();
@@ -319,7 +343,6 @@ fn check_server_requirements(cfg: &Config) -> Result<(), ConfigError>{
                     server.id, id
                 )));
             }
-
 
             //connected_drone_ids cannot contain repetitions
             if !seen_ids.insert(id) {
@@ -461,12 +484,18 @@ mod tests {
         assert!(!is_connected(&config), "Graph should not be connected.");
     }
 
-
     #[test]
     fn test_non_unique_ids() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 1, connected_drone_ids: vec![] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 1,
+                connected_drone_ids: vec![],
+            }],
             server: vec![],
         };
 
@@ -480,37 +509,63 @@ mod tests {
     #[test]
     fn test_drone_duplicate_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![2,2], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![2, 2],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![],
+            }],
             server: vec![],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The drone with id = [1] has a duplicate in the connected_node_ids list: [2]"), "got: {msg}");
+            assert!(
+                msg.contains(
+                    "The drone with id = [1] has a duplicate in the connected_node_ids list: [2]"
+                ),
+                "got: {msg}"
+            );
         }
     }
 
     #[test]
     fn test_drone_self_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![1], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![1],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![],
+            }],
             server: vec![],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The drone with id = [1] cannot be connected to itself"), "got: {msg}");
+            assert!(
+                msg.contains("The drone with id = [1] cannot be connected to itself"),
+                "got: {msg}"
+            );
         }
     }
 
     #[test]
     fn test_drone_unknown_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![42], pdr: 0.1 }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![42],
+                pdr: 0.1,
+            }],
             client: vec![],
             server: vec![],
         };
@@ -518,18 +573,30 @@ mod tests {
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The drone with id = [1] is connected to an unknown node id = [42]"), "got: {msg}");
+            assert!(
+                msg.contains("The drone with id = [1] is connected to an unknown node id = [42]"),
+                "got: {msg}"
+            );
         }
-        
     }
-    
+
     #[test]
     fn test_client_connected_to_client() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
             client: vec![
-                Client { id: 2, connected_drone_ids: vec![3] },
-                Client { id: 3, connected_drone_ids: vec![] },
+                Client {
+                    id: 2,
+                    connected_drone_ids: vec![3],
+                },
+                Client {
+                    id: 3,
+                    connected_drone_ids: vec![],
+                },
             ],
             server: vec![],
         };
@@ -545,11 +612,26 @@ mod tests {
     fn test_client_with_invalid_drone_count() {
         let config = Config {
             drone: vec![
-                Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 },
-                Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 },
-                Drone { id: 3, connected_node_ids: vec![], pdr: 0.1 },
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 3,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
             ],
-            client: vec![Client { id: 4, connected_drone_ids: vec![1, 2, 3] }],
+            client: vec![Client {
+                id: 4,
+                connected_drone_ids: vec![1, 2, 3],
+            }],
             server: vec![],
         };
 
@@ -563,24 +645,49 @@ mod tests {
     #[test]
     fn test_client_connected_to_server() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![3] }],
-            server: vec![Server { id: 3, connected_drone_ids: vec![1] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![3],
+            }],
+            server: vec![Server {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] cannot be connected to a server (with id = [3])"), "got: {msg}");
+            assert!(
+                msg.contains(
+                    "The client with id = [2] cannot be connected to a server (with id = [3])"
+                ),
+                "got: {msg}"
+            );
         }
     }
 
     #[test]
-    fn test_duplicate_client_connection(){
+    fn test_duplicate_client_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![1, 1] }],
-            server: vec![Server { id: 3, connected_drone_ids: vec![1] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![1, 1],
+            }],
+            server: vec![Server {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
         };
 
         let result = validate(&config);
@@ -591,41 +698,94 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_client_connection(){
+    fn test_invalid_client_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![1, 4] }],
-            server: vec![Server { id: 3, connected_drone_ids: vec![1] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![1, 4],
+            }],
+            server: vec![Server {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The client with id = [2] is connected to the id = [4] which is not valid"), "got: {msg}");
+            assert!(
+                msg.contains(
+                    "The client with id = [2] is connected to the id = [4] which is not valid"
+                ),
+                "got: {msg}"
+            );
         }
     }
-    
+
     #[test]
     fn test_server_connected_to_client() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 2, connected_drone_ids: vec![1] }],
-            server: vec![Server { id: 3, connected_drone_ids: vec![2] }],
+            drone: vec![Drone {
+                id: 1,
+                connected_node_ids: vec![],
+                pdr: 0.1,
+            }],
+            client: vec![Client {
+                id: 2,
+                connected_drone_ids: vec![1],
+            }],
+            server: vec![Server {
+                id: 3,
+                connected_drone_ids: vec![2],
+            }],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [3] cannot be connected to a client (with id = [2])"), "got: {msg}");
+            assert!(
+                msg.contains(
+                    "The server with id = [3] cannot be connected to a client (with id = [2])"
+                ),
+                "got: {msg}"
+            );
         }
     }
 
     #[test]
     fn test_server_connected_to_server() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }, Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1, 2] }, Server { id: 5, connected_drone_ids: vec![4] }],
+            drone: vec![
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+            ],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
+            server: vec![
+                Server {
+                    id: 4,
+                    connected_drone_ids: vec![1, 2],
+                },
+                Server {
+                    id: 5,
+                    connected_drone_ids: vec![4],
+                },
+            ],
         };
 
         let result = validate(&config);
@@ -638,9 +798,32 @@ mod tests {
     #[test]
     fn test_duplicate_server_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }, Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1, 1] }, Server { id: 5, connected_drone_ids: vec![4] }],
+            drone: vec![
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+            ],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
+            server: vec![
+                Server {
+                    id: 4,
+                    connected_drone_ids: vec![1, 1],
+                },
+                Server {
+                    id: 5,
+                    connected_drone_ids: vec![4],
+                },
+            ],
         };
 
         let result = validate(&config);
@@ -653,15 +836,37 @@ mod tests {
     #[test]
     fn test_invalid_server_connection() {
         let config = Config {
-            drone: vec![Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 }, Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 }],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1, 5] }],
+            drone: vec![
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+            ],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
+            server: vec![Server {
+                id: 4,
+                connected_drone_ids: vec![1, 5],
+            }],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(msg.contains("The server with id = [4] is connected to the id = [5] which is not valid"), "got: {msg}");
+            assert!(
+                msg.contains(
+                    "The server with id = [4] is connected to the id = [5] which is not valid"
+                ),
+                "got: {msg}"
+            );
         }
     }
 
@@ -669,11 +874,25 @@ mod tests {
     fn test_server_with_invalid_drone_count() {
         let config = Config {
             drone: vec![
-                Drone { id: 1, connected_node_ids: vec![], pdr: 0.1 },
-                Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 },
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
             ],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1, 2] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1] }],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1, 2],
+            }],
+            server: vec![Server {
+                id: 4,
+                connected_drone_ids: vec![1],
+            }],
         };
 
         let result = validate(&config);
@@ -687,8 +906,16 @@ mod tests {
     fn test_non_bidirectional_graph_should_fail() {
         let config = Config {
             drone: vec![
-                Drone { id: 1, connected_node_ids: vec![2], pdr: 0.1 },
-                Drone { id: 2, connected_node_ids: vec![], pdr: 0.1 },
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![2],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![],
+                    pdr: 0.1,
+                },
             ],
             client: vec![],
             server: vec![],
@@ -705,18 +932,31 @@ mod tests {
     fn test_client_server_not_at_edge() {
         let config = Config {
             drone: vec![
-                Drone { id: 1, connected_node_ids: vec![3, 4], pdr: 0.1 },
-                Drone { id: 2, connected_node_ids: vec![3, 4], pdr: 0.1 },
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![3, 4],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![3, 4],
+                    pdr: 0.1,
+                },
             ],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1, 2] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1, 2] }],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1, 2],
+            }],
+            server: vec![Server {
+                id: 4,
+                connected_drone_ids: vec![1, 2],
+            }],
         };
 
         let result = validate(&config);
         assert!(result.is_err());
         if let Err(ConfigError::Validation(msg)) = result {
-            assert!(
-                msg.contains("Clients and/ or severs aren't at the edge of the network"));
+            assert!(msg.contains("Clients and/ or severs aren't at the edge of the network"));
         }
     }
 
@@ -724,11 +964,25 @@ mod tests {
     fn test_valid_config() {
         let config = Config {
             drone: vec![
-                Drone { id: 1, connected_node_ids: vec![2, 3, 4], pdr: 0.1 },
-                Drone { id: 2, connected_node_ids: vec![1, 4], pdr: 0.1 },
+                Drone {
+                    id: 1,
+                    connected_node_ids: vec![2, 3, 4],
+                    pdr: 0.1,
+                },
+                Drone {
+                    id: 2,
+                    connected_node_ids: vec![1, 4],
+                    pdr: 0.1,
+                },
             ],
-            client: vec![Client { id: 3, connected_drone_ids: vec![1] }],
-            server: vec![Server { id: 4, connected_drone_ids: vec![1, 2] }],
+            client: vec![Client {
+                id: 3,
+                connected_drone_ids: vec![1],
+            }],
+            server: vec![Server {
+                id: 4,
+                connected_drone_ids: vec![1, 2],
+            }],
         };
 
         let result = validate(&config);

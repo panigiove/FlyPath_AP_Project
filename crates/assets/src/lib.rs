@@ -6,7 +6,7 @@ use wg_2024::packet::{Fragment, Packet};
 
 use crossbeam_channel::Sender;
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum DroneGroup{
+pub enum DroneGroup {
     RustInPeace,
     BagelBomber,
     LockheedRustin,
