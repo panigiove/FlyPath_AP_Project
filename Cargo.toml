@@ -12,6 +12,8 @@ initializer = { path = "crates/initializer"}
 members = [ 
     "crates/initializer",
     "crates/client",
+    "crates/message", "crates/server",
+    "crates/assets",
     "crates/message",
     "crates/controller"
 ]

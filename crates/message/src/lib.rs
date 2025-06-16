@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
 
+use crate::ChatResponse::MessageFrom;
 use crossbeam_channel::Sender;
 
 pub const FRAGMENT_DSIZE: usize = 128;
@@ -19,17 +20,6 @@ pub enum NodeEvent {
     CreateMessage(SentMessageWrapper), // try send message (every times is sended a stream of fragment)
     MessageRecv(RecvMessageWrapper),   // received full message
     ControllerShortcut(Packet),
-}
-
-// ------------------------------ HIGH MESSAGE ERRORS
-#[derive(Debug, Clone, PartialEq)]
-pub enum MessageError {
-    DirectConnectionDoNotWork(u64, NodeId),
-    ServerUnreachable(u64, NodeId),
-    NoFragmentWrapper(u64),
-    InvalidMessageReceived(u64),
-    InvalidFragmentIndex(u64, u64),
-    MessageNotComplete,
 }
 
 // ------------------------------ HIGH MESSAGE
@@ -56,6 +46,21 @@ impl SentMessageWrapper {
             fragments,
             raw_data,
         }
+    }
+
+    /// Create `Wrapper` from a serializable message
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use message::{ChatRequest, SentMessageWrapper};
+    /// let nid = 1;
+    /// let msg = ChatRequest::ClientList;
+    /// let wrapper = SentMessageWrapper::from_message(1, nid, &msg);
+    /// ```
+    pub fn from_message<T: DroneSend>(session_id: u64, destination: NodeId, message: &T) -> Self {
+        let raw_data = message.stringify();
+        Self::new_from_raw_data(session_id, destination, raw_data)
     }
 
     pub fn is_all_fragment_acked(&self) -> bool {
@@ -121,21 +126,56 @@ impl RecvMessageWrapper {
         }
     }
 
+    pub fn new_from_fragment(session_id: u64, source: NodeId, fragment: Fragment) -> Self {
+        let mut wrapper = Self::new(session_id, source, fragment.total_n_fragments);
+        wrapper.add_fragment(fragment);
+        wrapper
+    }
+
     pub fn is_all_fragments_arrived(&self) -> bool {
         self.arrived.len() as u64 == self.total_n_fragments
     }
 
-    pub fn add_fragment(&mut self, fragment: Fragment) {
+    pub fn add_fragment(&mut self, fragment: Fragment) -> bool {
         if fragment.fragment_index < self.total_n_fragments {
             let index = fragment.fragment_index;
+            if self.arrived.contains(&index) {
+                return false;
+            }
+
             self.arrived.insert(index);
             self.fragments[index as usize] = Some(fragment);
+            true
+        } else {
+            false
         }
     }
 
-    pub fn try_generate_raw_data(&mut self) -> Result<(), MessageError> {
+    /// Try to deserialize received fragments in specified message type
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut recv = RecvMessageWrapper::new(session_id, source, total_fragments);
+    /// recv.add_fragment(fragment1);
+    /// recv.add_fragment(fragment2);
+    /// // ...add all fragments
+    ///
+    /// if let Some(msg) = recv.try_deserialize::<ChatRequest>() {
+    ///     // use msg
+    /// }
+    /// ```
+    pub fn try_deserialize<T: DroneSend>(&mut self) -> Option<T> {
+        if !self.try_generate_raw_data() {
+            return None;
+        }
+        DroneSend::from_string(self.raw_data.clone()).ok()
+    }
+
+    /// Generate self.raw_data if is possible
+    pub fn try_generate_raw_data(&mut self) -> bool {
         if !self.is_all_fragments_arrived() {
-            return Err(MessageError::MessageNotComplete);
+            return false;
         }
 
         let full_message: Vec<u8> = self
@@ -144,17 +184,16 @@ impl RecvMessageWrapper {
             .flat_map(|frag| {
                 frag.as_ref()
                     .map(|f| f.data[..f.length as usize].to_vec())
-                    .unwrap_or_else(|| Vec::new())
+                    .unwrap_or_default()
             })
             .collect();
 
-        // funziona anche con i ?
         match String::from_utf8(full_message) {
             Ok(raw_data) => {
                 self.raw_data = raw_data;
-                Ok(())
+                true
             }
-            Err(_) => Err(MessageError::InvalidMessageReceived(self.session_id)),
+            Err(_) => false,
         }
     }
 }
@@ -174,14 +213,6 @@ pub trait Response: DroneSend {}
 
 // -------------------- Messages --------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaRequest {
-    MediaList,
-    Media(u64),
-}
-impl DroneSend for MediaRequest {}
-impl Request for MediaRequest {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatRequest {
     ClientList,
     Register(NodeId),
@@ -195,19 +226,10 @@ impl DroneSend for ChatRequest {}
 impl Request for ChatRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaResponse {
-    MediaList(Vec<u64>),
-    Media(Vec<u8>), // should we use some other type?
-}
-
-impl DroneSend for MediaResponse {}
-impl Response for MediaResponse {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatResponse {
     ClientList(Vec<NodeId>),
     MessageFrom { from: NodeId, message: Vec<u8> },
-    MessageSent,
+    ErrorWrongClientId(NodeId),
 }
 
 impl DroneSend for ChatResponse {}
