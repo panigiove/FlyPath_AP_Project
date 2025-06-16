@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 use crossbeam_channel::{Receiver, Sender};
-use eframe::egui::{self, Pos2, Vec2, Color32};
+use eframe::egui;
+use egui::{Pos2, Vec2, Color32, TextureId};
 use egui::TextureHandle;
-use egui_graphs::{DefaultEdgeShape, Graph, GraphView, Node};
+use egui_graphs::{Graph, GraphView, Node, Edge, SettingsInteraction, SettingsNavigation};
 use wg_2024::network::NodeId;
 use crate::view::graph_components::{CustomNode, CustomEdge};
 use crate::utility::{ButtonsMessages, GraphAction, NodeType};
 use petgraph::Undirected;
 
 
+type NodePayload = (NodeId, wg_2024::packet::NodeType);
 pub struct GraphApp {
-    graph: Graph<(NodeId, NodeType), (), petgraph::Undirected, usize, CustomNode, CustomEdge>,
-    graph_view: GraphView<(NodeId, NodeType), (), petgraph::Undirected, usize, CustomNode, CustomEdge>,
-    textures: HashMap<String, TextureHandle>,
-    selected_node: Option<petgraph::graph::NodeIndex>,
-    interaction_message: String,
+    graph: Graph<NodePayload, (), Undirected, u32, CustomNode, CustomEdge>,
+    selected_node: Option<petgraph::stable_graph::NodeIndex<u32>>,
+    node_textures: HashMap<NodeType, TextureId>,
+    settings_interaction: SettingsInteraction,
+    settings_navigation: SettingsNavigation,
     
     pub connection: HashMap<NodeId, Vec<NodeId>>,
     pub node_types: HashMap<NodeId, NodeType>,
@@ -26,92 +28,288 @@ pub struct GraphApp {
 }
 
 impl GraphApp {
-    pub fn new(connection: HashMap<NodeId, Vec<NodeId>>, node_types: HashMap<NodeId, NodeType>) -> Self {
-        let mut graph = ZoomableGraph::new();
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Carica le texture per i diversi tipi di nodi
+        let mut node_textures = HashMap::new();
 
-        // Crea alcuni nodi di esempio
-        let drone1 = CustomNode::new(
-            1,
-            NodeType::Drone,
-            "assets/drone_icon.png".to_string(),
-            Pos2::new(-100.0, -50.0)
-        ).with_size(Vec2::new(80.0, 80.0));
+        // Carica le immagini e crea le texture
+        let client_texture = load_texture_from_path(cc, "assets/client.png");
+        let drone_texture = load_texture_from_path(cc, "assets/drone.png");
+        let server_texture = load_texture_from_path(cc, "assets/server.png");
 
-        let drone2 = CustomNode::new(
-            2,
-            NodeType::Drone,
-            "assets/drone_icon.png".to_string(),
-            Pos2::new(100.0, -50.0)
-        ).with_size(Vec2::new(80.0, 80.0));
+        node_textures.insert(NodeType::Client, client_texture);
+        node_textures.insert(NodeType::Drone, drone_texture);
+        node_textures.insert(NodeType::Server, server_texture);
 
-        let server = CustomNode::new(
-            3,
-            NodeType::Server,
-            "assets/server_icon.png".to_string(),
-            Pos2::new(0.0, 0.0)
-        ).with_size(Vec2::new(100.0, 100.0))
-            .with_label("Main Server".to_string());
+        // Crea il grafo
+        let mut graph = Graph::new();
 
-        let client1 = CustomNode::new(
-            4,
-            NodeType::Client,
-            "assets/client_icon.png".to_string(),
-            Pos2::new(-150.0, 100.0)
-        ).with_size(Vec2::new(60.0, 60.0));
+        // Configura le impostazioni di interazione
+        let settings_interaction = SettingsInteraction::new()
+            .with_dragging_enabled(true)
+            .with_node_clicking_enabled(true)
+            .with_node_selection_enabled(true)
+            .with_edge_clicking_enabled(true);
 
-        let client2 = CustomNode::new(
-            5,
-            NodeType::Client,
-            "assets/client_icon.png".to_string(),
-            Pos2::new(0.0, 150.0)
-        ).with_size(Vec2::new(60.0, 60.0));
+        // Configura le impostazioni di navigazione
+        let settings_navigation = SettingsNavigation::new()
+            .with_fit_to_screen_enabled(true)
+            .with_zoom_and_pan_enabled(true);
 
-        let client3 = CustomNode::new(
-            6,
-            NodeType::Client,
-            "assets/client_icon.png".to_string(),
-            Pos2::new(150.0, 100.0)
-        ).with_size(Vec2::new(60.0, 60.0));
+        let mut app = Self {
+            graph,
+            selected_node: None,
+            node_textures,
+            settings_interaction,
+            settings_navigation,
+        };
 
-        // Aggiungi i nodi al grafo
-        graph.add_node(drone1);
-        graph.add_node(drone2);
-        graph.add_node(server);
-        graph.add_node(client1);
-        graph.add_node(client2);
-        graph.add_node(client3);
+        // Popola il grafo con alcuni nodi di esempio
+        app.populate_graph();
 
-        // Crea le connessioni (edges)
-        // Drone -> Server
-        graph.add_edge(CustomEdge::new(1, 3)
-            .with_color(Color32::BLUE)
-            .with_thickness(3.0));
-        graph.add_edge(CustomEdge::new(2, 3)
-            .with_color(Color32::BLUE)
-            .with_thickness(3.0));
-
-        // Server -> Clients
-        graph.add_edge(CustomEdge::new(3, 4)
-            .with_color(Color32::GREEN)
-            .with_thickness(2.0));
-        graph.add_edge(CustomEdge::new(3, 5)
-            .with_color(Color32::GREEN)
-            .with_thickness(2.0));
-        graph.add_edge(CustomEdge::new(3, 6)
-            .with_color(Color32::GREEN)
-            .with_thickness(2.0));
-
-        // Connessioni tra client (peer-to-peer)
-        graph.add_edge(CustomEdge::new(4, 5)
-            .with_color(Color32::YELLOW)
-            .with_thickness(1.5));
-        graph.add_edge(CustomEdge::new(5, 6)
-            .with_color(Color32::YELLOW)
-            .with_thickness(1.5));
-
-        Self {graph, connection, node_types}
+        app
     }
-    
+    fn populate_graph(&mut self) {
+        // Aggiungi alcuni nodi di esempio
+        let nodes_data = vec![
+            (1, NodeType::Server, Pos2::new(200.0, 100.0)),
+            (2, NodeType::Drone, Pos2::new(100.0, 200.0)),
+            (3, NodeType::Drone, Pos2::new(300.0, 200.0)),
+            (4, NodeType::Client, Pos2::new(50.0, 300.0)),
+            (5, NodeType::Client, Pos2::new(350.0, 300.0)),
+        ];
+
+        let mut node_indices = HashMap::new();
+
+        // Crea i nodi
+        for (id, node_type, position) in nodes_data {
+            let texture_id = self.node_textures.get(&node_type).copied().unwrap_or_else(|| {
+                // Fallback texture se non trovata
+                TextureId::default()
+            });
+
+            let custom_node = CustomNode::new(
+                id,
+                node_type,
+                match node_type {
+                    NodeType::Client => "assets/client.png".to_string(),
+                    NodeType::Drone => "assets/drone.png".to_string(),
+                    NodeType::Server => "assets/server.png".to_string(),
+                },
+                position,
+                Vec2::new(60.0, 60.0),
+                texture_id,
+            );
+
+            let node_index = self.graph.add_node((id, node_type), custom_node);
+            node_indices.insert(id, node_index);
+        }
+
+        // Aggiungi alcune connessioni (edges)
+        let connections = vec![
+            (1, 2), // Server -> Drone
+            (1, 3), // Server -> Drone
+            (2, 4), // Drone -> Client
+            (3, 5), // Drone -> Client
+            (2, 3), // Drone -> Drone
+        ];
+
+        for (from_id, to_id) in connections {
+            if let (Some(&from_idx), Some(&to_idx)) = (node_indices.get(&from_id), node_indices.get(&to_id)) {
+                let custom_edge = CustomEdge::from(egui_graphs::EdgeProps::new(()));
+                self.graph.add_edge(from_idx, to_idx, (), custom_edge);
+            }
+        }
+    }
+
+    fn handle_node_click(&mut self, node_index: petgraph::stable_graph::NodeIndex<u32>) {
+        self.selected_node = Some(node_index);
+
+        // Ottieni informazioni sul nodo cliccato
+        if let Some(node) = self.graph.node(node_index) {
+            let (node_id, node_type) = node.payload();
+            println!("Nodo cliccato: ID={}, Tipo={:?}", node_id, node_type);
+        }
+    }
+}
+
+impl eframe::App for GraphApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Panel laterale per le informazioni
+            egui::SidePanel::left("info_panel")
+                .resizable(true)
+                .default_width(200.0)
+                .show_inside(ui, |ui| {
+                    ui.heading("Info Grafo");
+
+                    ui.separator();
+
+                    ui.label(format!("Nodi totali: {}", self.graph.node_count()));
+                    ui.label(format!("Collegamenti: {}", self.graph.edge_count()));
+
+                    ui.separator();
+
+                    if let Some(selected_idx) = self.selected_node {
+                        if let Some(node) = self.graph.node(selected_idx) {
+                            let (node_id, node_type) = node.payload();
+                            ui.heading("Nodo Selezionato");
+                            ui.label(format!("ID: {}", node_id));
+                            ui.label(format!("Tipo: {:?}", node_type));
+
+                            // Bottone per deselezionare
+                            if ui.button("Deseleziona").clicked() {
+                                self.selected_node = None;
+                            }
+                        }
+                    } else {
+                        ui.label("Nessun nodo selezionato");
+                        ui.label("Clicca su un nodo per selezionarlo");
+                    }
+
+                    ui.separator();
+
+                    // Bottone per aggiungere nodi
+                    if ui.button("Aggiungi Drone").clicked() {
+                        self.add_random_drone();
+                    }
+
+                    if ui.button("Aggiungi Client").clicked() {
+                        self.add_random_client();
+                    }
+                });
+
+            // Area principale per il grafo
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                ui.heading("Grafo di Rete");
+
+                // Visualizza il grafo
+                let graph_response = ui.add(
+                    GraphView::new(&mut self.graph)
+                        .with_interactions(&self.settings_interaction)
+                        .with_navigations(&self.settings_navigation)
+                );
+
+                // Gestisci i click sui nodi
+                if let Some(node_clicked) = graph_response.node_clicked {
+                    self.handle_node_click(node_clicked);
+                }
+
+                // Gestisci hover sui nodi
+                if let Some(node_hovered) = graph_response.node_hovered {
+                    if let Some(node) = self.graph.node(node_hovered) {
+                        let (node_id, node_type) = node.payload();
+                        egui::show_tooltip(
+                            ctx,
+                            egui::Id::new("node_tooltip"),
+                            |ui| {
+                                ui.label(format!("ID: {}", node_id));
+                                ui.label(format!("Tipo: {:?}", node_type));
+                            }
+                        );
+                    }
+                }
+            });
+        });
+    }
+}
+
+impl GraphApp {
+    fn add_random_drone(&mut self) {
+        let new_id = self.get_next_node_id();
+        let position = Pos2::new(
+            fastrand::f32() * 400.0 + 100.0,
+            fastrand::f32() * 300.0 + 100.0,
+        );
+
+        let texture_id = self.node_textures.get(&NodeType::Drone).copied()
+            .unwrap_or_else(|| TextureId::default());
+
+        let custom_node = CustomNode::new(
+            new_id,
+            NodeType::Drone,
+            "assets/drone.png".to_string(),
+            position,
+            Vec2::new(60.0, 60.0),
+            texture_id,
+        );
+
+        self.graph.add_node((new_id, NodeType::Drone), custom_node);
+    }
+
+    fn add_random_client(&mut self) {
+        let new_id = self.get_next_node_id();
+        let position = Pos2::new(
+            fastrand::f32() * 400.0 + 100.0,
+            fastrand::f32() * 300.0 + 100.0,
+        );
+
+        let texture_id = self.node_textures.get(&NodeType::Client).copied()
+            .unwrap_or_else(|| TextureId::default());
+
+        let custom_node = CustomNode::new(
+            new_id,
+            NodeType::Client,
+            "assets/client.png".to_string(),
+            position,
+            Vec2::new(60.0, 60.0),
+            texture_id,
+        );
+
+        self.graph.add_node((new_id, NodeType::Client), custom_node);
+    }
+
+    fn get_next_node_id(&self) -> NodeId {
+        // Trova il prossimo ID disponibile
+        let mut max_id = 0;
+        for node_index in self.graph.node_indices() {
+            if let Some(node) = self.graph.node(node_index) {
+                let (node_id, _) = node.payload();
+                if node_id > max_id {
+                    max_id = node_id;
+                }
+            }
+        }
+        max_id + 1
+    }
+}
+
+// Funzione helper per caricare texture da file
+fn load_texture_from_path(cc: &eframe::CreationContext<'_>, path: &str) -> TextureId {
+    // Implementazione per caricare texture da file
+    // Questo è un esempio - dovrai adattarlo al tuo sistema di caricamento immagini
+    match std::fs::read(path) {
+        Ok(image_data) => {
+            // Usa image crate o simile per decodificare l'immagine
+            // Questo è un placeholder - implementa secondo le tue necessità
+            load_texture_from_bytes(cc, &image_data)
+        }
+        Err(_) => {
+            // Crea una texture di fallback colorata
+            create_colored_texture(cc, Color32::LIGHT_GRAY, 64, 64)
+        }
+    }
+}
+
+fn load_texture_from_bytes(cc: &eframe::CreationContext<'_>, bytes: &[u8]) -> TextureId {
+    // Implementazione per caricare texture da bytes
+    // Placeholder - implementa secondo le tue necessità
+    create_colored_texture(cc, Color32::LIGHT_BLUE, 64, 64)
+}
+
+fn create_colored_texture(cc: &eframe::CreationContext<'_>, color: Color32, width: usize, height: usize) -> TextureId {
+    let pixels = vec![color; width * height];
+    let color_image = egui::ColorImage {
+        size: [width, height],
+        pixels,
+    };
+
+    cc.egui_ctx.load_texture(
+        "colored_texture",
+        color_image,
+        egui::TextureOptions::default(),
+    )
+}
     //FORSE CONNECTION E NODE TYPE SONO MEGLIO DARLI COMW PARAMENTRI QUANDO CREIAMO UN NUOVO GRAPH APP
     
     pub fn run(&mut self){

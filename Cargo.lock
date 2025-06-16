@@ -889,6 +889,7 @@ dependencies = [
  "egui_extras",
  "egui_graphs",
  "env_logger",
+ "fastrand",
  "fdg",
  "flyPath",
  "image 0.24.9",
