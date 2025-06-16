@@ -16,4 +16,6 @@ members = [
     "crates/assets",
     "crates/message",
     "crates/controller"
+    "crates/message", "crates/server",
+    "crates/assets",
 ]

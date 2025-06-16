@@ -28,7 +28,7 @@ pub struct ChatServer {
 }
 
 impl ChatServer {
-    fn new(
+    pub fn new(
         id: NodeId,
         controller_send: Sender<NodeEvent>,
         controller_recv: Receiver<NodeCommand>,

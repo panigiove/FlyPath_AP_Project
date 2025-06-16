@@ -43,19 +43,26 @@ mod tests {
     #[test]
     fn test_add_node_and_remove_node() {
         let mut state = setup_state();
-        let nid = 1;
-        state.add_node(nid, NodeType::Client);
-        assert!(!state.id_to_idx.contains_key(&nid));
-        assert!(!state.server_list.contains(&nid));
+        let cid = 1;
+        state.add_node(cid, NodeType::Client);
+        assert!(!state.id_to_idx.contains_key(&cid));
+        assert!(!state.server_list.contains(&cid));
 
         let sid = 2;
-        let expected = vec![sid];
         state.add_node(sid, NodeType::Server);
         assert!(state.id_to_idx.contains_key(&sid));
         assert!(state.server_list.contains(&sid));
 
-        state.remove_node(&nid);
-        assert!(!state.id_to_idx.contains_key(&nid));
+        let nid = 3;
+        state.add_node(nid, NodeType::Drone);
+        assert!(state.id_to_idx.contains_key(&nid));
+        assert!(!state.server_list.contains(&nid));
+
+        state.remove_node(&cid);
+        assert!(!state.id_to_idx.contains_key(&cid));
+
+        state.remove_node(&sid);
+        assert!(state.id_to_idx.contains_key(&sid));
 
         state.remove_node(&sid);
         assert!(state.id_to_idx.contains_key(&sid));
@@ -64,16 +71,49 @@ mod tests {
     #[test]
     fn test_add_link_creates_nodes() {
         let mut state = setup_state();
-        let mut a = 1;
-        let mut b = 2;
+        let my_id = state.topology[state.start_idx];
+        let drone_a = 1;
+        let drone_b = 2;
+        let server_c = 3;
 
-        let expected = vec![b];
+        // Configuration : Client <-> Drone A <-> Drone B -> Server C
+        state.add_link(my_id, drone_a, NodeType::Client, NodeType::Drone, 5);
+        state.add_link(drone_a, drone_b, NodeType::Drone, NodeType::Drone, 10);
+        state.add_link(drone_b, server_c, NodeType::Drone, NodeType::Server, 8);
 
-        state.add_link(a, b, NodeType::Drone, NodeType::Server, 5);
+        let idx_client = state.start_idx;
+        let idx_a = state.id_to_idx[&drone_a];
+        let idx_b = state.id_to_idx[&drone_b];
+        let idx_c = state.id_to_idx[&server_c];
+
+        assert_eq!(state.topology.find_edge(idx_c, idx_b), None);
+
+        let edge_client_a = state.topology.find_edge(idx_client, idx_a).unwrap();
+        let edge_a_client = state.topology.find_edge(idx_a, idx_client).unwrap();
+        assert_eq!(state.topology.edge_weight(edge_client_a), Some(&5));
+        assert_eq!(state.topology.edge_weight(edge_a_client), Some(&5));
+
+        let edge_a_b = state.topology.find_edge(idx_a, idx_b).unwrap();
+        let edge_b_a = state.topology.find_edge(idx_b, idx_a).unwrap();
+        assert_eq!(state.topology.edge_weight(edge_a_b), Some(&10));
+        assert_eq!(state.topology.edge_weight(edge_b_a), Some(&10));
+
+        let edge_b_c = state.topology.find_edge(idx_b, idx_c).unwrap();
+        assert_eq!(state.topology.edge_weight(edge_b_c), Some(&8));
+
+        state = setup_state();
+        let mut a = 100;
+        let mut b = 101;
+        state.add_link(a, b, NodeType::Server, NodeType::Drone, 5);
+        let idx_a = state.id_to_idx[&a];
+        let idx_b = state.id_to_idx[&b];
+        assert_eq!(state.topology.find_edge(idx_a, idx_b), None);
+        let edge_b_a = state.topology.find_edge(idx_b, idx_a).unwrap();
+        assert_eq!(state.topology.edge_weight(edge_b_a), Some(&5));
         assert!(state.id_to_idx.contains_key(&a));
         assert!(state.id_to_idx.contains_key(&b));
-        assert!(!state.server_list.contains(&a));
-        assert!(state.server_list.contains(&b));
+        assert!(state.server_list.contains(&a));
+        assert!(!state.server_list.contains(&b));
 
         a = 1;
         b = 3;
@@ -81,34 +121,57 @@ mod tests {
         assert!(!state.id_to_idx.contains_key(&b));
         assert!(!state.server_list.contains(&a));
         assert!(!state.server_list.contains(&b));
-
-        a = 0; // start_id
-        b = 3;
-        state.add_link(a, b, NodeType::Client, NodeType::Drone, 5);
-        assert!(state.id_to_idx.contains_key(&a));
-        assert!(state.id_to_idx.contains_key(&b));
-        assert!(!state.server_list.contains(&a));
-        assert!(!state.server_list.contains(&b));
     }
 
     #[test]
     fn test_increment_weight_around_node() {
         let mut state = setup_state();
-        let a = 1;
-        let b = 2;
+        let my_id = state.topology[state.start_idx];
+        let drone_a = 1;
+        let drone_b = 2;
+        let server_c = 3;
 
-        state.add_link(a, b, NodeType::Drone, NodeType::Server, 5);
-        let idx_a = state.id_to_idx[&a];
-        let idx_b = state.id_to_idx[&b];
+        // Configuration : Client <-> Drone A <-> Drone B -> Server C
+        state.add_link(my_id, drone_a, NodeType::Client, NodeType::Drone, 5);
+        state.add_link(drone_a, drone_b, NodeType::Drone, NodeType::Drone, 10);
+        state.add_link(drone_b, server_c, NodeType::Drone, NodeType::Server, 8);
 
-        let edge = state.topology.find_edge(idx_a, idx_b).unwrap();
-        assert_eq!(state.topology.edge_weight(edge), Some(&5));
+        let idx_client = state.start_idx;
+        let idx_a = state.id_to_idx[&drone_a];
+        let idx_b = state.id_to_idx[&drone_b];
+        let idx_c = state.id_to_idx[&server_c];
 
-        state.increment_weight_around_node(&a, 4);
-        assert_eq!(state.topology.edge_weight(edge), Some(&9));
+        let edge_client_a = state.topology.find_edge(idx_client, idx_a).unwrap();
+        let edge_a_client = state.topology.find_edge(idx_a, idx_client).unwrap();
+        let edge_a_b = state.topology.find_edge(idx_a, idx_b).unwrap();
+        let edge_b_a = state.topology.find_edge(idx_b, idx_a).unwrap();
+        let edge_b_c = state.topology.find_edge(idx_b, idx_c).unwrap();
 
-        state.increment_weight_around_node(&a, -10);
-        assert_eq!(state.topology.edge_weight(edge), Some(&1));
+        assert_eq!(state.topology.find_edge(idx_c, idx_b), None);
+
+        state.increment_weight_around_node(&drone_a, 4);
+
+        assert_eq!(state.topology.edge_weight(edge_client_a), Some(&9));
+        assert_eq!(state.topology.edge_weight(edge_a_client), Some(&9));
+        assert_eq!(state.topology.edge_weight(edge_a_b), Some(&14));
+        assert_eq!(state.topology.edge_weight(edge_b_a), Some(&14));
+        assert_eq!(state.topology.edge_weight(edge_b_c), Some(&8));
+
+        state.increment_weight_around_node(&drone_a, -10);
+
+        assert_eq!(state.topology.edge_weight(edge_client_a), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_a_client), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_a_b), Some(&4));
+        assert_eq!(state.topology.edge_weight(edge_b_a), Some(&4));
+        assert_eq!(state.topology.edge_weight(edge_b_c), Some(&8));
+
+        state.increment_weight_around_node(&server_c, 2);
+
+        assert_eq!(state.topology.edge_weight(edge_b_c), Some(&10));
+        assert_eq!(state.topology.edge_weight(edge_client_a), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_a_client), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_a_b), Some(&4));
+        assert_eq!(state.topology.edge_weight(edge_b_a), Some(&4));
     }
 
     #[test]
@@ -140,8 +203,8 @@ mod tests {
         let mut state = setup_state();
         let a = 1;
         let b = 2;
-        state.add_link(0, a, NodeType::Drone, NodeType::Drone, 1);
-        state.add_link(0, b, NodeType::Drone, NodeType::Drone, 1);
+        state.add_link(0, a, NodeType::Client, NodeType::Drone, 1);
+        state.add_link(0, b, NodeType::Client, NodeType::Drone, 1);
         state.add_link(a, b, NodeType::Drone, NodeType::Drone, 1);
         let ax = state.id_to_idx.get(&a).unwrap();
         let bx = state.id_to_idx.get(&b).unwrap();
@@ -157,8 +220,8 @@ mod tests {
         let mut state = setup_state();
         let a = 1;
         let b = 2;
-        state.add_link(0, a, NodeType::Drone, NodeType::Drone, 1);
-        state.add_link(0, b, NodeType::Drone, NodeType::Drone, 10);
+        state.add_link(0, a, NodeType::Client, NodeType::Drone, 1);
+        state.add_link(0, b, NodeType::Client, NodeType::Drone, 10);
         state.add_link(a, b, NodeType::Drone, NodeType::Drone, 1);
         let ax = state.id_to_idx.get(&a).unwrap();
         let bx = state.id_to_idx.get(&b).unwrap();
@@ -189,18 +252,37 @@ mod tests {
     fn test_get_server_path_compute_new_path_and_cached() {
         let mut state = setup_state();
         let sid = 100;
-        state.add_link(0, sid, NodeType::Drone, NodeType::Server, 1);
+        let nid = 1;
+        state.add_link(0, nid, NodeType::Client, NodeType::Drone, 1);
+        state.add_link(nid, sid, NodeType::Drone, NodeType::Server, 1);
 
-        let expected_path = vec![0, 100];
-
-        let result = state.get_server_path(&sid);
-        if let (result_path) = result.unwrap() {
-            assert_eq!(result_path, expected_path);
-        } else {
-            panic!();
-        }
+        let expected_path = vec![0, 1, 100];
 
         let result_path = state.get_server_path(&sid).unwrap();
+        assert_eq!(result_path, expected_path);
+    }
+
+    #[test]
+    fn test_get_server_path_shortest_with_server_middle() {
+        let mut state = setup_state();
+        let sid_a = 100;
+        let sid_b = 101;
+        let drone_a = 1;
+        let drone_b = 2;
+        let drone_c = 3;
+        let drone_d = 4;
+        state.add_link(0, drone_a, NodeType::Client, NodeType::Drone, 1);
+        state.add_link(drone_a, sid_a, NodeType::Drone, NodeType::Server, 1);
+        state.add_link(sid_a, drone_d, NodeType::Server, NodeType::Drone, 1);
+        state.add_link(0, drone_b, NodeType::Client, NodeType::Drone, 10);
+        state.add_link(drone_b, drone_c, NodeType::Drone, NodeType::Drone, 1);
+        state.add_link(drone_c, drone_d, NodeType::Drone, NodeType::Drone, 1);
+        state.add_link(drone_d, sid_b, NodeType::Drone, NodeType::Server, 1);
+
+        let expected_path = vec![0, 2, 3, 4, 101];
+
+        let result = state.get_server_path(&sid_b);
+        let result_path = result.unwrap();
         assert_eq!(result_path, expected_path);
     }
 
