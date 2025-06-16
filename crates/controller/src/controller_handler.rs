@@ -45,7 +45,9 @@ pub struct ControllerHandler {
     //pub send_packet_client: HashMap<NodeId, Sender<Packet>>,
     //LE VARIE COMPONENTI DEL CONTROLLER
     pub button_receiver: Receiver<ButtonEvent>, // the buttons window says what the user wants to do
+    //TODO delete
     pub graph_connections_sender: Sender<HashMap<NodeId, Vec<NodeId>>>, // sends the connections to the graph (only at the first stage)
+    //TODO delete
     pub graph_node_type_sender: Sender<HashMap<NodeId, NodeType>>, //sends the type of nodes to the graph (only at the first stage),
     pub graph_action_sender: Sender<GraphAction>, //sendes connection's updates to the graph
     pub message_sender: Sender<MessageType>, //sends to the message window what it has to shoh
