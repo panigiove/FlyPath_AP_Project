@@ -23,7 +23,7 @@ pub struct MessagerManager {
 
     buffer: HashMap<NodeId, Vec<Packet>>, // server -> buffer
     msg_wrapper: HashMap<Session, SentMessageWrapper>,
-    rcv_wrapper: HashMap<Session, RecvMessageWrapper>,
+    rcv_wrapper: HashMap<(Session, NodeId), RecvMessageWrapper>,
     last_session: Session,
 }
 
@@ -126,16 +126,17 @@ impl MessagerManager {
         session: Session,
         source: NodeId,
     ) -> bool {
-        let is_new_session = !self.rcv_wrapper.contains_key(&session);
+        let session_key = (session, source);
+        let is_new_session = !self.rcv_wrapper.contains_key(&session_key);
 
         if is_new_session {
             self.rcv_wrapper.insert(
-                session,
+                session_key,
                 RecvMessageWrapper::new_from_fragment(session, source, fragment),
             );
             true
         } else {
-            let wrapper = self.rcv_wrapper.get_mut(&session).unwrap();
+            let wrapper = self.rcv_wrapper.get_mut(&session_key).unwrap();
             let is_not_duplicate = wrapper.add_fragment(fragment);
 
             if wrapper.is_all_fragments_arrived() {
@@ -165,7 +166,7 @@ impl MessagerManager {
                         .tx_ui
                         .send(ChatResponse { response: msg })
                         .expect("Failed to transmit to UI");
-                    self.rcv_wrapper.remove(&session);
+                    self.rcv_wrapper.remove(&session_key);
                 }
             }
 
