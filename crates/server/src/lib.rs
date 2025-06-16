@@ -1,5 +1,6 @@
 mod message;
 mod network;
+mod test;
 
 use crate::message::ServerMessageManager;
 use crate::network::NetworkManager;

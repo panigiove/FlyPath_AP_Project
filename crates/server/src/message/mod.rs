@@ -8,7 +8,7 @@ use wg_2024::packet::{Ack, Fragment, Packet};
 #[derive(Clone, Debug)]
 pub struct ServerMessageManager {
     incoming_fragments: HashMap<(u64, NodeId), RecvMessageWrapper>,
-    outgoing_packets: HashMap<u64, SentMessageWrapper>,
+    pub(crate) outgoing_packets: HashMap<u64, SentMessageWrapper>,
     registered_clients: HashSet<NodeId>,
 }
 

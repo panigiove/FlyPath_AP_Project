@@ -6,12 +6,12 @@ use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet};
 
 #[derive(Clone, Debug)]
 pub struct NetworkManager {
-    topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
-    routes: HashMap<NodeId, Vec<NodeId>>,
-    client_list: HashSet<NodeId>,
+    pub(crate) topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
+    pub(crate) routes: HashMap<NodeId, Vec<NodeId>>,
+    pub(crate) client_list: HashSet<NodeId>,
     server_id: NodeId,
-    n_errors: i64,
-    n_dropped: i64,
+    pub(crate) n_errors: i64,
+    pub(crate) n_dropped: i64,
     flood_interval: Duration,
     start_time: SystemTime,
 }
