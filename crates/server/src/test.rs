@@ -139,7 +139,7 @@ mod tests {
         let register_msg = ChatRequest::Register(client_id);
         let msg_str = serde_json::to_string(&register_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-        
+
         let routing_header = SourceRoutingHeader::new(vec![client_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
@@ -357,7 +357,7 @@ mod tests {
         };
         let msg_str = serde_json::to_string(&send_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-        
+
         let routing_header = SourceRoutingHeader::new(vec![sender_id, 100, server.id],1);
         let packet = Packet {
             routing_header,
@@ -479,7 +479,7 @@ mod tests {
         };
         let msg_str = serde_json::to_string(&send_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-        
+
         let routing_header = SourceRoutingHeader::new(vec![sender_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
