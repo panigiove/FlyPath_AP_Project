@@ -32,6 +32,8 @@ rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
 rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
 rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
 flyPath = { git = "https://github.com/panigiove/FlyPath.git" }
+server = { path = "../server"}
+client = { path = "../client"}
 
 message = { path = "../message" }
 env_logger = "0.11.6"
