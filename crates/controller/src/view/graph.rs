@@ -19,7 +19,7 @@ pub struct GraphApp {
     //CHANNELS
     pub receiver_updates: Receiver<GraphAction>,
     pub sender_node_clicked: Sender<NodeId>,
-    pub sender_edge_clicked: Sender<(NodeId, NodeId)>, // Nuovo sender per edge
+    pub sender_edge_clicked: Sender<(NodeId, NodeId)>,
     pub reciver_buttom_messages: Receiver<ButtonsMessages>,
 }
 

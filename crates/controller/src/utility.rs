@@ -42,6 +42,8 @@ pub enum GraphAction {
 pub enum ButtonEvent{
     NewDrone(NodeId, f32), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
     //the other value is the pdr's once, so we let the user to decide it
+    NewServer(NodeId), //the NodeId is of the first connection wich must be a drone
+    NewClient(NodeId), //the NodeId is of the first connection wich must be a drone
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
     RemoveConection(NodeId, NodeId),
