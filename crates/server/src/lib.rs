@@ -21,9 +21,9 @@ pub struct ChatServer {
     pub packet_recv: Receiver<Packet>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub last_session_id: u64,
-
     pub network_manager: NetworkManager,
     pub server_message_manager: ServerMessageManager,
+    pub server_buffer: HashMap<NodeId, Vec<Packet>>,
 }
 
 impl ChatServer {
@@ -43,6 +43,7 @@ impl ChatServer {
             last_session_id: 0,
             network_manager: NetworkManager::new(id, Duration::new(10, 0)),
             server_message_manager: ServerMessageManager::new(),
+            server_buffer: HashMap::new(),
         }
     }
 
@@ -62,6 +63,8 @@ impl ChatServer {
                     }
                 }
             }
+            
+            self.try_resend();
         }
     }
 
@@ -87,19 +90,27 @@ impl ChatServer {
             //da completare
             PacketType::MsgFragment(fragment) => {
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
+                //todo controparte in message, poi cacellare questo
                 if !self.server_message_manager.is_registered(&key.1) {
                     warn!("Client {} not registered", key.1);
+                    
                     return;
                 }
+                
+                self.server_message_manager.store_fragment(key, fragment.clone());
 
                 if self.server_message_manager.are_all_fragment_arrived(key) {
-                    let recv_msg = self.server_message_manager.get_incoming_fragments(key).unwrap();
+                    let recv_msg = self
+                        .server_message_manager
+                        .get_incoming_fragments(key)
+                        .unwrap();
                     info!("Message {:?} received", recv_msg);
                     self.send_event(NodeEvent::MessageRecv(recv_msg));
-                    
+
                     if let Some(wrapper) =
-                        self.server_message_manager.message_handling(&key, fragment)
+                        self.server_message_manager.message_handling(&key, self.last_session_id + 1)
                     {
+                        self.last_session_id += 1;
                         self.send_event(NodeEvent::CreateMessage(wrapper.clone()));
                         for frag in wrapper.fragments {
                             self.send_packet(&mut Packet {
@@ -135,11 +146,7 @@ impl ChatServer {
                     wrapper.get_fragment(nack.fragment_index as usize).unwrap();
                 let mut packet_to_send = Packet {
                     routing_header: SourceRoutingHeader::initialize(
-                        self.network_manager
-                            .routes
-                            .get(&wrapper.destination)
-                            .unwrap()
-                            .clone(),
+                        self.network_manager.get_route(&wrapper.destination).unwrap()
                     ),
                     session_id: wrapper.session_id,
                     pack_type: PacketType::MsgFragment(fragment_to_resend),
@@ -163,14 +170,26 @@ impl ChatServer {
             }
         }
     }
+    fn try_resend(&mut self) {
+        if !self.server_buffer.is_empty(){
+            let keys = self.server_buffer.keys().cloned().collect::<Vec<_>>();
+
+            for key in keys.iter() {
+                for mut packet in self.server_buffer.remove(key).unwrap().clone() {
+                    self.network_manager.update_routing_path(&mut packet.routing_header);
+                    self.send_packet(&mut packet);
+                }
+            }
+        }
+    }
     //da modificare: non gestisco il caso in cui il drone o il sender siano non raggiungibili e il messaggio rimane nel buffer
     fn send_packet(&mut self, packet: &mut Packet) {
         packet.routing_header.increase_hop_index();
         if let Some(next_hop) = packet.routing_header.current_hop() {
-            if let Some(sender) = self.packet_send.get_mut(&next_hop) {
+            if let Some(sender) = self.packet_send.get(&next_hop) {
                 if sender.send(packet.clone()).is_err() {
                     warn!("Failed to send packet, Drone {} unreachable", next_hop);
-                    //self.network_manager.update_errors();
+                    self.add_to_buffer(packet.clone());
                     match packet.pack_type {
                         PacketType::Ack(_) | PacketType::FloodResponse(_) => {
                             self.send_event(ControllerShortcut(packet.clone()));
@@ -182,10 +201,15 @@ impl ChatServer {
 
                     self.network_manager.remove_node(next_hop);
                     self.network_manager.generate_all_routes();
-
-                    self.flood_initializer();
+                    
+                    if self.network_manager.should_flood_request(){
+                        self.flood_initializer();
+                    }
                 } else {
-                    info!("Packet with session id {} sent successfully to {}", packet.session_id, next_hop);
+                    info!(
+                        "Packet with session id {} sent successfully to {}",
+                        packet.session_id, next_hop
+                    );
                     let event = NodeEvent::PacketSent(packet.clone());
                     self.send_event(event);
                 }
@@ -205,6 +229,13 @@ impl ChatServer {
         for (_, sender) in &self.packet_send {
             let _ = sender.send(packet.clone());
         }
+    }
+    fn add_to_buffer(&mut self, packet: Packet) {
+        let dest = &packet.routing_header.source().unwrap();
+        if !self.server_buffer.contains_key(dest) {
+            self.server_buffer.insert(*dest, Vec::new());
+        }
+        self.server_buffer.get_mut(dest).unwrap().push(packet);
     }
     fn send_event(&self, event: NodeEvent) {
         if self.controller_send.send(event).is_err() {

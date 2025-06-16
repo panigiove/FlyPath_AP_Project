@@ -56,8 +56,13 @@ impl ServerMessageManager {
             .get_mut(session_id)
             .unwrap()
             .add_acked(ack.fragment_index);
-        
-        if self.outgoing_packets.get(session_id).unwrap().is_all_fragment_acked() {
+
+        if self
+            .outgoing_packets
+            .get(session_id)
+            .unwrap()
+            .is_all_fragment_acked()
+        {
             self.outgoing_packets.remove(session_id);
         }
     }
@@ -67,16 +72,14 @@ impl ServerMessageManager {
     pub fn get_incoming_fragments(&self, key: &(u64, NodeId)) -> Option<RecvMessageWrapper> {
         self.incoming_fragments.get(key).cloned()
     }
-    //todo: MessageFrom e un altro di cui non ricordo il nome
     pub fn message_handling(
         &mut self,
         key: &(u64, NodeId),
-        fragment: Fragment,
+        session_id: u64,
     ) -> Option<SentMessageWrapper> {
-        self.store_fragment(key, fragment);
 
         let sent_msg_wrapper;
-        
+
         if let Some(message) = self
             .incoming_fragments
             .get_mut(key)
@@ -84,12 +87,12 @@ impl ServerMessageManager {
             .try_deserialize::<ChatRequest>()
         {
             self.incoming_fragments.remove(key);
-            
+
             match message {
                 ChatRequest::ClientList => {
                     let client_list = self.get_all_registered_clients();
                     let msg = ChatResponse::ClientList(client_list);
-                    sent_msg_wrapper = SentMessageWrapper::from_message(key.0, key.1, &msg);
+                    sent_msg_wrapper = SentMessageWrapper::from_message(session_id, key.1, &msg);
                     Some(sent_msg_wrapper)
                 }
                 ChatRequest::Register(node_id) => {
@@ -98,10 +101,20 @@ impl ServerMessageManager {
                     None
                 }
                 ChatRequest::SendMessage { from, to, message } => {
-                    sent_msg_wrapper =
-                        SentMessageWrapper::new_from_raw_data(key.0, to, message);
+                    if !self.is_registered(&to) {
+                        info!("Client {:?} not registered", to);
+                        let msg = ChatResponse::ErrorWrongClientId(to);
+                        sent_msg_wrapper = SentMessageWrapper::from_message(session_id, key.1, &msg);
+                        return Some(sent_msg_wrapper);
+                    }
+                    
+                    sent_msg_wrapper = SentMessageWrapper::from_message(session_id, to, &ChatResponse::MessageFrom {
+                        from,
+                        message: message.into_bytes(),
+                    });
+                    
                     self.outgoing_packets
-                        .insert(key.0, sent_msg_wrapper.clone());
+                        .insert(session_id, sent_msg_wrapper.clone());
                     Some(sent_msg_wrapper)
                 }
             }

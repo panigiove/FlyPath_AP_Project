@@ -1,13 +1,13 @@
 use log::info;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime};
-use wg_2024::network::NodeId;
+use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet};
 
 #[derive(Clone, Debug)]
 pub struct NetworkManager {
     topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
-    pub routes: HashMap<NodeId, Vec<NodeId>>,
+    routes: HashMap<NodeId, Vec<NodeId>>,
     client_list: HashSet<NodeId>,
     server_id: NodeId,
     n_errors: i64,
@@ -79,7 +79,12 @@ impl NetworkManager {
 
         info!("Ack arrived from {}", ack_source);
     }
-
+    pub fn update_routing_path(&mut self, routing_header: &mut SourceRoutingHeader){
+        let dest = routing_header.destination().unwrap();
+        self.generate_specific_route(&dest);
+        routing_header.hops = self.get_route(&dest).unwrap();
+        routing_header.hop_index = 0;
+    }
     pub fn remove_node(&mut self, node: NodeId) {
         self.topology.remove(&node);
         let keys: Vec<NodeId> = self.topology.keys().cloned().collect();
@@ -154,15 +159,14 @@ impl NetworkManager {
         }
         info!("Generated all routes to clients");
     }
-
-    fn generate_specific_route(&mut self, node_id: NodeId) {
-        self.routes.insert(node_id, self.calculate_path(node_id));
+    fn generate_specific_route(&mut self, node_id: &NodeId) {
+        self.routes.insert(*node_id, self.calculate_path(*node_id));
         info!("Generated route to {}", node_id);
     }
     pub fn should_flood_request(&self) -> bool {
         let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(0));
 
-        elapsed > self.flood_interval || self.n_errors > 7 || self.n_dropped > 3
+        elapsed > self.flood_interval || self.n_errors.rem_euclid(7) == 0 || self.n_dropped.rem_euclid(3) == 0
     }
     pub fn get_client_list(&self) -> Vec<NodeId> {
         self.client_list.iter().cloned().collect()
