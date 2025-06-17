@@ -1,4 +1,4 @@
-use message::{NodeCommand};
+use message::{NodeCommand, NodeEvent};
 
 use crossbeam_channel::{select, select_biased, Receiver, Sender, unbounded, TrySendError};
 use std::collections::HashMap;
@@ -24,7 +24,6 @@ use rusty_drones::RustyDrone;
 use crate::utility::{ButtonEvent, GraphAction, NodeType, MessageType, DroneGroup};
 use crate::utility::GraphAction::{AddEdge, AddNode, RemoveEdge, RemoveNode};
 use crate::utility::MessageType::{Error, PacketSent};
-use egui_graphs::Node;
 use rand::seq::SliceRandom;
 use wg_2024::drone::Drone;
 use message::NodeCommand::FromShortcut;
@@ -315,11 +314,15 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
     //adds a new dorne to the network
     pub fn spawn(&mut self, first_connection: &NodeId, pdr: f32) {
         //TODO nella generazione random bisogna considerare anche gli id dei client e dei server
-        let Some(id) = get_random_key(&self.drones) else {
+        
+        if let Some(id) = self.get_random_key(){
+            
+        }
+        else{
             eprintln!("Controller: Couldn't get a random key");
             let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
             return;
-        };
+        }
         if !self.check_network_before_add_drone(&id, &vec![first_connection.clone() as NodeId]) {
             eprintln!("Controller: Drone with id = {} and connected to drone with id = {} can't be added to the network due to a violation of the network requirement", id, first_connection);
             let _ = self.message_sender.try_send(Error(format!("Controller: Drone with id = {} and connected to drone with id = {} can't be added to the network due to a violation of the network requirement", id, first_connection)));
@@ -336,11 +339,14 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
     }
     
     pub fn new_client(&mut self, id_connection: NodeId){
-        let Some(id) = get_random_key(&self.drones) else {
+        if let Some(id) = self.get_random_key(){
+            //todo!
+        }
+        else{
             eprintln!("Controller: Couldn't get a random key");
             let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
             return;
-        };
+        }
         if !self.is_drone(&id_connection){
             eprintln!("Controller: The first connection of a client must be a drone");
             let _ = self.message_sender.try_send(Error("Controller: The first connection of a client must be a drone".to_string()));
@@ -355,7 +361,7 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
     // packet_send: HashMap<NodeId, Sender<Packet>>,
     // ) -> Self {
     pub fn new_server(&mut self, id_connection: NodeId){
-        let Some(id) = get_random_key(&self.drones) else {
+        let Some(id) = self.get_random_key() else {
             eprintln!("Controller: Couldn't get a random key");
             let _ = self.message_sender.try_send(Error("Controller: Couldn't get a random key".to_string()));
             return;
@@ -372,18 +378,26 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
         // Crea l'HashMap per packet_send (inizialmente vuoto)
         let mut packet_send: HashMap<NodeId, Sender<Packet>> = HashMap::new();
         let (p_send, p_receiver) = unbounded::<Packet>();
+        let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
+        let (node_command_send, node_command_receiver) = unbounded::<NodeCommand>();
+        
         packet_send.insert(id_connection, p_send);
         
         //TODO sistemare connessioni nel drone connesso
         
-        // let chat_server = ChatServer::new(
-        //     id,
-        //     controller_send,
-        //     controller_recv,
-        //     packet_recv,
-        //     packet_send,
-        // );
+        let chat_server = ChatServer::new(
+            id,
+            node_event_send,
+            node_command_receiver,
+            p_receiver,
+            packet_send,
+        );
+        let mut connections: Vec<NodeId> = Vec::new();
+        connections.push(id_connection);
         
+        self.servers.insert(id, chat_server);
+        self.connections.insert(id, connections);
+        self.send_command_node.insert(id, node_command_send);
     }
 
     pub fn crash(&mut self, id: &NodeId) {
@@ -669,6 +683,29 @@ pub fn add_new_drone(&mut self, id: NodeId, first_connection: &NodeId, pdr: f32)
             });
             true
         }
+        pub fn get_random_key(&self) -> Option<NodeId>{
+            let mut ids: Vec<NodeId> = Vec::new();
+            for (id, _) in self.drones{
+                ids.push(id);
+            }
+            for (id, _) in self.clients{
+                ids.push(id);
+            }
+            for (id, _) in self.servers{
+                ids.push(id);
+            }
+        
+            let mut possible_id: Vec<NodeId> = (0..=255).collect();
+            possible_id.retain(|id| !ids);
+    
+            if possible_id.is_empty(){
+                return None
+            }
+
+            let random_index = rand::thread_rng().gen_range(0..possible_id.len());
+
+            Some(possible_id[random_index])
+        }
     }
 
 pub fn is_connected(id: &NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
@@ -691,16 +728,5 @@ pub fn dfs(id: &NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>, visited: &mut V
     }
 }
 
-pub fn get_random_key(d: &HashMap<NodeId, Box<dyn Drone>>, c: &HashMap<NodeId, Box<Client>>, s: &HashMap<NodeId, Box<Server>>) -> Option<NodeId>{
-    let mut possible_id: Vec<NodeId> = (0..=255).collect();
-    possible_id.retain(|id| !d.contains_key(id));
 
-    if possible_id.is_empty(){
-        return None
-    }
-
-    let random_index = rand::thread_rng().gen_range(0..possible_id.len());
-
-    Some(possible_id[random_index])
-}
 
