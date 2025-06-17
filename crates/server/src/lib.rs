@@ -130,7 +130,7 @@ impl ChatServer {
             //da completare, mancano controlli (?)
             PacketType::Ack(ack) => {
                 self.network_manager
-                    .update_from_ack(packet.routing_header.source().unwrap());
+                    .update_from_ack(packet.routing_header.hops); //todo controllare il funzionamento, ack dovrebbe essere inviato da client/server
                 self.server_message_manager
                     .insert_ack(ack, &packet.session_id);
             }
@@ -232,7 +232,7 @@ impl ChatServer {
         }
     }
     fn add_to_buffer(&mut self, packet: Packet) {
-        let dest = &packet.routing_header.source().unwrap();
+        let dest = &packet.routing_header.destination().unwrap();
         if !self.server_buffer.contains_key(dest) {
             self.server_buffer.insert(*dest, Vec::new());
         }
