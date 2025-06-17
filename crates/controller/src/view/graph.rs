@@ -3,15 +3,17 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::{egui, emath};
 use egui::{Color32, TextureId};
 use wg_2024::network::NodeId;
-use crate::utility::{ButtonsMessages, GraphAction, NodeType};
+use crate::utility::{ButtonsMessages, GraphAction, MessageType, NodeType};
 use rand::Rng;
 
 type NodePayload = (NodeId, NodeType);
 
 pub struct GraphApp {
     // Rimuoviamo il grafo di egui_graphs e usiamo solo le mappe interne
-    selected_node_id: Option<NodeId>,
-    node_textures: HashMap<NodeType, TextureId>,
+    pub selected_node_id1: Option<NodeId>,
+    pub selected_node_id2: Option<NodeId>,
+    pub selected_edge: Option<(NodeId, NodeId)>, // NUOVO: traccia l'edge selezionato
+    pub node_textures: HashMap<NodeType, TextureId>,
 
     pub connection: HashMap<NodeId, Vec<NodeId>>,
     pub node_types: HashMap<NodeId, NodeType>,
@@ -21,6 +23,7 @@ pub struct GraphApp {
     pub sender_node_clicked: Sender<NodeId>,
     pub sender_edge_clicked: Sender<(NodeId, NodeId)>,
     pub reciver_buttom_messages: Receiver<ButtonsMessages>,
+    pub sender_message_type: Sender<MessageType>
 }
 
 impl GraphApp {
@@ -30,7 +33,8 @@ impl GraphApp {
                receiver_updates: Receiver<GraphAction>,
                sender_node_clicked: Sender<NodeId>,
                sender_edge_clicked: Sender<(NodeId, NodeId)>, // Nuovo parametro
-               reciver_buttom_messages: Receiver<ButtonsMessages>) -> Self {
+               reciver_buttom_messages: Receiver<ButtonsMessages>,
+               sender_message_type: Sender<MessageType>) -> Self {
 
         // Carica le texture per i diversi tipi di nodi
         let mut node_textures = HashMap::new();
@@ -42,18 +46,19 @@ impl GraphApp {
         node_textures.insert(NodeType::Drone, drone_texture);
         node_textures.insert(NodeType::Server, server_texture);
 
-        let mut app = Self {
-            selected_node_id: None,
+        Self {
+            selected_node_id1: None,
+            selected_node_id2: None,
+            selected_edge: None, // NUOVO
             node_textures,
             connection,
             node_types,
             receiver_updates,
             sender_node_clicked,
             sender_edge_clicked,
-            reciver_buttom_messages
-        };
-
-        app
+            reciver_buttom_messages,
+            sender_message_type
+        }
     }
 
     /// Ricostruisce il grafo - ora non fa nulla perché usiamo solo le mappe interne
@@ -117,7 +122,9 @@ impl GraphApp {
     pub fn button_messages_handler(&mut self, message: ButtonsMessages) {
         match message {
             ButtonsMessages::DeselectNode(_id) => {
-                self.selected_node_id = None;
+                self.selected_node_id1 = None;
+                self.selected_node_id2 = None;
+                self.selected_edge = None; // NUOVO: deseleziona anche l'edge
             }
             ButtonsMessages::MultipleSelectionAllowed => {
                 // TODO: implementare selezione multipla
@@ -126,8 +133,37 @@ impl GraphApp {
     }
 
     fn handle_node_click(&mut self, node_id: NodeId) {
-        self.selected_node_id = Some(node_id);
+        // Deseleziona l'edge quando si seleziona un nodo
+        self.selected_edge = None;
+
+        if self.selected_node_id1.is_none() {
+            self.selected_node_id1 = Some(node_id);
+            // self.sender_message_type.send(...); // Completa secondo le tue necessità
+        } else if self.selected_node_id1 == Some(node_id) {
+            // Se clicchi sullo stesso nodo, deselezionalo
+            self.selected_node_id1 = None;
+            self.selected_node_id2 = None;
+        } else {
+            self.selected_node_id2 = Some(node_id);
+        }
+
         println!("Nodo cliccato: ID={}, Tipo={:?}", node_id, self.node_types.get(&node_id));
+    }
+
+    // NUOVO: Metodo per gestire il click sugli edge
+    fn handle_edge_click(&mut self, edge: (NodeId, NodeId)) {
+        // Deseleziona i nodi quando si seleziona un edge
+        self.selected_node_id1 = None;
+        self.selected_node_id2 = None;
+
+        // Toggle dell'edge selezionato
+        if self.selected_edge == Some(edge) || self.selected_edge == Some((edge.1, edge.0)) {
+            self.selected_edge = None;
+        } else {
+            self.selected_edge = Some(edge);
+        }
+
+        println!("Edge cliccato: {:?}", edge);
     }
 
     fn get_next_node_id(&self) -> NodeId {
@@ -170,8 +206,18 @@ impl GraphApp {
         self.connection.remove(&node_id);
 
         // Deseleziona se era selezionato
-        if self.selected_node_id == Some(node_id) {
-            self.selected_node_id = None;
+        if self.selected_node_id1 == Some(node_id) {
+            self.selected_node_id1 = None;
+        }
+        if self.selected_node_id2 == Some(node_id) {
+            self.selected_node_id2 = None;
+        }
+
+        // NUOVO: Deseleziona l'edge se coinvolgeva questo nodo
+        if let Some((id1, id2)) = self.selected_edge {
+            if id1 == node_id || id2 == node_id {
+                self.selected_edge = None;
+            }
         }
 
         println!("Removed node {}", node_id);
@@ -231,6 +277,11 @@ impl GraphApp {
             connections.retain(|&x| x != id1);
         }
 
+        // NUOVO: Deseleziona l'edge se era selezionato
+        if self.selected_edge == Some((id1, id2)) || self.selected_edge == Some((id2, id1)) {
+            self.selected_edge = None;
+        }
+
         println!("Removed edge between nodes {} and {}", id1, id2);
         Ok(())
     }
@@ -268,11 +319,30 @@ impl GraphApp {
             let painter = ui.painter_at(rect);
 
             // Colori per i diversi tipi di nodi
-            let get_node_color = |node_type: NodeType| -> Color32 {
-                match node_type {
-                    NodeType::Client => Color32::from_rgb(255, 100, 100),  // Rosso
-                    NodeType::Drone => Color32::from_rgb(100, 150, 255),   // Blu
-                    NodeType::Server => Color32::from_rgb(100, 255, 100),  // Verde
+            let get_node_color = |node_type: NodeType, is_selected: bool| -> Color32 {
+                if is_selected {
+                    // Colori più vivaci quando selezionato
+                    match node_type {
+                        NodeType::Client => Color32::from_rgb(255, 150, 150),  // Rosso più chiaro
+                        NodeType::Drone => Color32::from_rgb(150, 200, 255),   // Blu più chiaro
+                        NodeType::Server => Color32::from_rgb(150, 255, 150),  // Verde più chiaro
+                    }
+                } else {
+                    // Colori normali
+                    match node_type {
+                        NodeType::Client => Color32::from_rgb(255, 100, 100),  // Rosso
+                        NodeType::Drone => Color32::from_rgb(100, 150, 255),   // Blu
+                        NodeType::Server => Color32::from_rgb(100, 255, 100),  // Verde
+                    }
+                }
+            };
+
+            // Funzione per determinare il colore dell'edge
+            let get_edge_color = |edge: (NodeId, NodeId)| -> Color32 {
+                if self.selected_edge == Some(edge) || self.selected_edge == Some((edge.1, edge.0)) {
+                    Color32::from_rgb(255, 255, 0) // Giallo quando selezionato
+                } else {
+                    Color32::GRAY // Grigio normale
                 }
             };
 
@@ -294,7 +364,7 @@ impl GraphApp {
                     node_positions.insert(node_id, pos);
                 }
 
-                // Prima disegna gli edge (sotto i nodi)
+                // Prima disegna gli edge (sotto i nodi) con colori di selezione
                 for (&id1, connections) in &self.connection {
                     if let Some(&pos1) = node_positions.get(&id1) {
                         for &id2 in connections {
@@ -307,9 +377,18 @@ impl GraphApp {
                                     let start_pos = pos1 + direction * node_radius;
                                     let end_pos = pos2 - direction * node_radius;
 
+                                    // NUOVO: Usa il colore basato sulla selezione
+                                    let edge_color = get_edge_color((id1, id2));
+                                    let stroke_width = if self.selected_edge == Some((id1, id2)) ||
+                                        self.selected_edge == Some((id2, id1)) {
+                                        5.0 // Più spesso quando selezionato
+                                    } else {
+                                        3.0 // Spessore normale
+                                    };
+
                                     painter.line_segment(
                                         [start_pos, end_pos],
-                                        egui::Stroke::new(3.0, Color32::GRAY)
+                                        egui::Stroke::new(stroke_width, edge_color)
                                     );
 
                                     // Memorizza il segmento per il click detection
@@ -320,7 +399,7 @@ impl GraphApp {
                     }
                 }
 
-                // Poi disegna i nodi (sopra gli edge)
+                // Poi disegna i nodi (sopra gli edge) con colori di selezione
                 for (i, (&node_id, &node_type)) in self.node_types.iter().enumerate() {
                     let angle = (i as f32 / node_count as f32) * 2.0 * std::f32::consts::PI;
                     let pos = egui::Pos2::new(
@@ -330,13 +409,15 @@ impl GraphApp {
 
                     // Disegna il nodo
                     let node_radius = 20.0;
-                    let node_color = get_node_color(node_type);
+                    let is_selected = self.selected_node_id1 == Some(node_id) ||
+                        self.selected_node_id2 == Some(node_id);
 
-                    // Evidenzia se selezionato
-                    let is_selected = self.selected_node_id == Some(node_id);
+                    // NUOVO: Usa il colore basato sulla selezione
+                    let node_color = get_node_color(node_type, is_selected);
 
+                    // Evidenzia se selezionato con aureola gialla
                     if is_selected {
-                        painter.circle_filled(pos, node_radius + 5.0, Color32::YELLOW);
+                        painter.circle_filled(pos, node_radius + 3.0, Color32::YELLOW);
                     }
 
                     painter.circle_filled(pos, node_radius, node_color);
@@ -354,7 +435,7 @@ impl GraphApp {
                 }
             }
 
-            // Gestisci i click
+            // Gestisci i click (aggiornato)
             if response.clicked() {
                 if let Some(click_pos) = response.interact_pointer_pos() {
                     let mut clicked_something = false;
@@ -393,11 +474,11 @@ impl GraphApp {
                             }
                         }
 
-                        if let Some((edge_id1, edge_id2)) = closest_edge {
+                        if let Some(clicked_edge) = closest_edge {
                             // Click su edge
-                            println!("Edge cliccato: {} -> {}", edge_id1, edge_id2);
+                            self.handle_edge_click(clicked_edge);
 
-                            if let Err(e) = self.sender_edge_clicked.send((edge_id1, edge_id2)) {
+                            if let Err(e) = self.sender_edge_clicked.send(clicked_edge) {
                                 println!("Errore nell'invio edge_clicked: {}", e);
                             }
 
@@ -405,19 +486,24 @@ impl GraphApp {
                         }
                     }
 
-                    // Se non è stato cliccato niente, deseleziona
+                    // Se non è stato cliccato niente, deseleziona tutto
                     if !clicked_something {
-                        self.selected_node_id = None;
+                        self.selected_node_id1 = None;
+                        self.selected_node_id2 = None;
+                        self.selected_edge = None;
                     }
                 }
             }
         }
 
-        // Istruzioni per l'utente
+        // Istruzioni per l'utente (aggiornate)
         ui.separator();
-        ui.label("🔵 Clicca sui NODI per selezionarli");
-        ui.label("🔗 Clicca sugli EDGE per informazioni sulla connessione");
+        ui.label("🔵 Clicca sui NODI per selezionarli (cambiano colore)");
+        ui.label("🔗 Clicca sugli EDGE per selezionarli (diventano gialli)");
         ui.label("Colori: 🔴 Client, 🔵 Drone, 🟢 Server");
+        if self.selected_node_id1.is_some() || self.selected_edge.is_some() {
+            ui.label("💡 Clicca sullo sfondo per deselezionare tutto");
+        }
     }
 }
 
@@ -438,7 +524,7 @@ fn distance_point_to_line(point: egui::Pos2, line_start: egui::Pos2, line_end: e
 impl eframe::App for GraphApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Panel laterale per le informazioni
+            // Panel laterale per le informazioni (aggiornato)
             egui::SidePanel::left("info_panel")
                 .resizable(true)
                 .default_width(200.0)
@@ -451,9 +537,10 @@ impl eframe::App for GraphApp {
 
                     ui.separator();
 
-                    if let Some(selected_node_id) = self.selected_node_id {
+                    // Informazioni sul nodo selezionato
+                    if let Some(selected_node_id) = self.selected_node_id1 {
                         if let Some(&node_type) = self.node_types.get(&selected_node_id) {
-                            ui.heading("Nodo Selezionato");
+                            ui.heading("🔵 Nodo Selezionato");
                             ui.label(format!("ID: {}", selected_node_id));
                             ui.label(format!("Tipo: {:?}", node_type));
 
@@ -461,13 +548,31 @@ impl eframe::App for GraphApp {
                                 ui.label(format!("Connesso a: {:?}", connections));
                             }
 
-                            if ui.button("Deseleziona").clicked() {
-                                self.selected_node_id = None;
+                            if ui.button("Deseleziona Nodo").clicked() {
+                                self.selected_node_id1 = None;
+                                self.selected_node_id2 = None;
                             }
                         }
-                    } else {
-                        ui.label("Nessun nodo selezionato");
-                        ui.label("Clicca su un nodo per selezionarlo");
+                    }
+
+                    // NUOVO: Informazioni sull'edge selezionato
+                    if let Some((id1, id2)) = self.selected_edge {
+                        ui.separator();
+                        ui.heading("🔗 Edge Selezionato");
+                        ui.label(format!("Connessione: {} ↔ {}", id1, id2));
+
+                        if let (Some(&type1), Some(&type2)) = (self.node_types.get(&id1), self.node_types.get(&id2)) {
+                            ui.label(format!("Tipo: {:?} ↔ {:?}", type1, type2));
+                        }
+
+                        if ui.button("Deseleziona Edge").clicked() {
+                            self.selected_edge = None;
+                        }
+                    }
+
+                    if self.selected_node_id1.is_none() && self.selected_edge.is_none() {
+                        ui.label("Nessuna selezione");
+                        ui.label("Clicca su un nodo o edge per selezionarlo");
                     }
 
                     ui.separator();
@@ -541,6 +646,7 @@ mod tests {
         let (tx_node_clicked, rx_node_clicked) = unbounded();
         let (tx_edge_clicked, rx_edge_clicked) = unbounded();
         let (tx_button_messages, rx_button_messages) = unbounded();
+        let (tx_message_type, rx_message_type) = unbounded();
 
         let connection = HashMap::new();
         let node_types = HashMap::new();
@@ -553,7 +659,9 @@ mod tests {
         node_textures.insert(NodeType::Server, TextureId::default());
 
         let app = GraphApp {
-            selected_node_id: None,
+            selected_node_id1: None,
+            selected_node_id2: None,
+            selected_edge: None, // NUOVO
             node_textures,
             connection,
             node_types,
@@ -561,6 +669,7 @@ mod tests {
             sender_node_clicked: tx_node_clicked,
             sender_edge_clicked: tx_edge_clicked,
             reciver_buttom_messages: rx_button_messages,
+            sender_message_type: tx_message_type,
         };
 
         (app, rx_node_clicked, rx_edge_clicked, tx_updates, tx_button_messages)
@@ -715,11 +824,47 @@ mod tests {
 
         // Click sul nodo 1
         app.handle_node_click(1);
-        assert_eq!(app.selected_node_id, Some(1));
+        assert_eq!(app.selected_node_id1, Some(1));
+        assert_eq!(app.selected_edge, None); // Edge deselezionato
 
         // Click sul nodo 2
         app.handle_node_click(2);
-        assert_eq!(app.selected_node_id, Some(2));
+        assert_eq!(app.selected_node_id2, Some(2));
+
+        // Click di nuovo sul nodo 1 (già selezionato)
+        app.handle_node_click(1);
+        assert_eq!(app.selected_node_id1, None);
+        assert_eq!(app.selected_node_id2, None);
+    }
+
+    #[test]
+    fn test_handle_edge_click() {
+        let (mut app, _, _, _, _) = create_test_app();
+
+        app.add_node(1, NodeType::Client).unwrap();
+        app.add_node(2, NodeType::Drone).unwrap();
+        app.add_edge(1, 2).unwrap();
+
+        // Seleziona prima un nodo
+        app.selected_node_id1 = Some(1);
+
+        // Click sull'edge
+        app.handle_edge_click((1, 2));
+        assert_eq!(app.selected_edge, Some((1, 2)));
+        assert_eq!(app.selected_node_id1, None); // Nodi deselezionati
+        assert_eq!(app.selected_node_id2, None);
+
+        // Click di nuovo sullo stesso edge (toggle)
+        app.handle_edge_click((1, 2));
+        assert_eq!(app.selected_edge, None);
+
+        // Test con edge invertito
+        app.handle_edge_click((2, 1));
+        assert_eq!(app.selected_edge, Some((2, 1)));
+
+        // Click sull'edge già selezionato ma con ordine invertito
+        app.handle_edge_click((1, 2));
+        assert_eq!(app.selected_edge, None);
     }
 
     #[test]
@@ -749,11 +894,79 @@ mod tests {
         let (mut app, _, _, _, _) = create_test_app();
 
         app.add_node(1, NodeType::Client).unwrap();
-        app.selected_node_id = Some(1);
+        app.add_node(2, NodeType::Drone).unwrap();
+        app.add_edge(1, 2).unwrap();
+
+        // Imposta alcune selezioni
+        app.selected_node_id1 = Some(1);
+        app.selected_edge = Some((1, 2));
 
         // Test DeselectNode
         app.button_messages_handler(ButtonsMessages::DeselectNode(1));
-        assert_eq!(app.selected_node_id, None);
+        assert_eq!(app.selected_node_id1, None);
+        assert_eq!(app.selected_node_id2, None);
+        assert_eq!(app.selected_edge, None); // NUOVO: anche l'edge viene deselezionato
+    }
+
+    #[test]
+    fn test_selection_state_consistency() {
+        let (mut app, _, _, _, _) = create_test_app();
+
+        app.add_node(1, NodeType::Client).unwrap();
+        app.add_node(2, NodeType::Drone).unwrap();
+        app.add_edge(1, 2).unwrap();
+
+        // Test: selezionare un nodo deseleziona l'edge
+        app.selected_edge = Some((1, 2));
+        app.handle_node_click(1);
+        assert_eq!(app.selected_edge, None);
+        assert_eq!(app.selected_node_id1, Some(1));
+
+        // Test: selezionare un edge deseleziona i nodi
+        app.selected_node_id1 = Some(1);
+        app.selected_node_id2 = Some(2);
+        app.handle_edge_click((1, 2));
+        assert_eq!(app.selected_node_id1, None);
+        assert_eq!(app.selected_node_id2, None);
+        assert_eq!(app.selected_edge, Some((1, 2)));
+    }
+
+    #[test]
+    fn test_remove_node_with_selected_edge() {
+        let (mut app, _, _, _, _) = create_test_app();
+
+        app.add_node(1, NodeType::Client).unwrap();
+        app.add_node(2, NodeType::Drone).unwrap();
+        app.add_node(3, NodeType::Server).unwrap();
+        app.add_edge(1, 2).unwrap();
+        app.add_edge(2, 3).unwrap();
+
+        // Seleziona un edge
+        app.selected_edge = Some((1, 2));
+
+        // Rimuovi un nodo coinvolto nell'edge selezionato
+        app.remove_node(1).unwrap();
+
+        // L'edge dovrebbe essere deselezionato
+        assert_eq!(app.selected_edge, None);
+    }
+
+    #[test]
+    fn test_remove_edge_with_selection() {
+        let (mut app, _, _, _, _) = create_test_app();
+
+        app.add_node(1, NodeType::Client).unwrap();
+        app.add_node(2, NodeType::Drone).unwrap();
+        app.add_edge(1, 2).unwrap();
+
+        // Seleziona l'edge
+        app.selected_edge = Some((1, 2));
+
+        // Rimuovi l'edge selezionato
+        app.remove_edge(1, 2).unwrap();
+
+        // L'edge dovrebbe essere deselezionato
+        assert_eq!(app.selected_edge, None);
     }
 
     #[test]
@@ -771,20 +984,20 @@ mod tests {
         assert!(app.node_types.contains_key(&1));
 
         // Test invio ButtonsMessages tramite canale
-        app.selected_node_id = Some(1);
+        app.selected_node_id1 = Some(1);
+        app.selected_edge = Some((1, 1)); // Edge fittizio per test
         tx_button_messages.send(ButtonsMessages::DeselectNode(1)).unwrap();
 
         if let Ok(command) = app.reciver_buttom_messages.try_recv() {
             app.button_messages_handler(command);
         }
 
-        assert_eq!(app.selected_node_id, None);
+        assert_eq!(app.selected_node_id1, None);
+        assert_eq!(app.selected_edge, None);
     }
 
     #[test]
     fn test_distance_point_to_line() {
-        // Usa egui dal contesto corrente (stesso usato dalla funzione)
-
         // Test punto sulla linea
         let line_start = egui::Pos2::new(0.0, 0.0);
         let line_end = egui::Pos2::new(10.0, 0.0);

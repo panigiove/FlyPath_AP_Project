@@ -35,28 +35,34 @@ impl MessagesWindow{
             egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui|{
                 for line in &self.log{
                     match line{
+                        //     Error(String),
+                        //     Ok(String),
+                        //     PacketSent(String),
+                        //     PacketDropped(String),
+                        //     Info(String),
+                        //     //TODO vedere se aggiungere un tipo di messaggi per il drone
+                        // }
                         MessageType::Error(t) => {
-                            // Rosso per gli errori
-                            let text = RichText::new(t).color(egui::Color32::from_rgb(255, 100, 100));
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(234, 162, 124)); //orange
                             ui.label(text);
                         }
                         MessageType::Ok(t) => {
                             // Verde per i messaggi OK
-                            let text = RichText::new(t).color(egui::Color32::from_rgb(100, 255, 100));
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(232, 187, 166)); //pink
                             ui.label(text);
                         }
-                        // // Gestisci altri tipi di messaggio se esistono
-                        // MessageType::Info(t) => {
-                        //     // Azzurro per info (se esiste questo tipo)
-                        //     let text = RichText::new(t).color(egui::Color32::from_rgb(100, 200, 255));
-                        //     ui.label(text);
-                        // }
-                        // MessageType::Warning(t) => {
-                        //     // Giallo per warning (se esiste questo tipo)
-                        //     let text = RichText::new(t).color(egui::Color32::from_rgb(255, 255, 100));
-                        //     ui.label(text);
-                        // }
-                        // Fallback per tipi non gestiti - IMPORTANTE!
+                        MessageType::PacketSent(t) =>{
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(14, 137, 145)); //blue
+                            ui.label(text);
+                        }
+                        MessageType::PacketDropped(t) => {
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(12, 49, 59)); //dark blu-green
+                            ui.label(text);
+                        }
+                        MessageType::Info(t) => {
+                            let text = RichText::new(t).color(egui::Color32::from_rgb(141, 182, 188)); //same color as icons
+                            ui.label(text);
+                        }
                         _ => {
                             // Colore neutro per messaggi non classificati
                             let text = RichText::new("Messaggio non classificato").color(egui::Color32::GRAY);

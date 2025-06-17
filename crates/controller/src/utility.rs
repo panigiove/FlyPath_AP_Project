@@ -60,6 +60,7 @@ pub enum MessageType{
     Ok(String),
     PacketSent(String),
     PacketDropped(String),
+    Info(String),
     //TODO vedere se aggiungere un tipo di messaggi per il drone
 }
 
