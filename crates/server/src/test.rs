@@ -1,17 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+    use crossbeam_channel::{unbounded, Receiver, Sender};
     use std::collections::{HashMap, HashSet};
-    use std::thread;
-    use std::time::Duration;
     use wg_2024::network::{NodeId, SourceRoutingHeader};
     use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
     use message::{ChatRequest, ChatResponse, NodeCommand, NodeEvent};
     use crate::ChatServer;
 
     fn create_test_server() -> (ChatServer, Receiver<NodeEvent>, Sender<NodeCommand>, Sender<Packet>) {
-        create_test_server_with_topology(vec![])
+        create_test_server_with_drone_topology(vec![])
     }
 
     fn create_test_server_with_drone_topology(client_ids: Vec<NodeId>) -> (ChatServer, Receiver<NodeEvent>, Sender<NodeCommand>, Sender<Packet>) {
@@ -58,45 +55,6 @@ mod tests {
 
         (server, controller_recv_events, controller_send_commands, packet_send_to_server)
     }
-
-    fn create_test_server_with_topology(client_ids: Vec<NodeId>) -> (ChatServer, Receiver<NodeEvent>, Sender<NodeCommand>, Sender<Packet>) {
-        let server_id = 1;
-        let (controller_send, controller_recv_events) = unbounded();
-        let (controller_send_commands, controller_recv) = unbounded();
-        let (packet_send_to_server, packet_recv) = unbounded();
-        let packet_send = HashMap::new();
-
-        let mut server = ChatServer::new(
-            server_id,
-            controller_send,
-            controller_recv,
-            packet_recv,
-            packet_send,
-        );
-
-        // Inizializza la topologia del server
-        // Il server ha se stesso nella topologia
-        server.network_manager.topology.insert(server_id, (HashSet::new(), 1.0, 1.0));
-
-        // Aggiungi i client alla topologia e alle liste
-        for client_id in client_ids.iter() {
-            // Aggiungi il client alla topologia con probabilità di successo alta
-            server.network_manager.topology.insert(*client_id, (HashSet::new(), 1.0, 1.0));
-            server.network_manager.client_list.insert(*client_id);
-
-            // Crea una connessione diretta server -> client
-            server.network_manager.topology.get_mut(&server_id).unwrap().0.insert(*client_id);
-
-            // Registra il client nel message manager
-            server.server_message_manager.add_to_registered_client(*client_id);
-
-            // Genera la route diretta
-            server.network_manager.routes.insert(*client_id, vec![server_id, *client_id]);
-        }
-
-        (server, controller_recv_events, controller_send_commands, packet_send_to_server)
-    }
-
     fn create_fragment(index: u64, total: u64, data: &str) -> Fragment {
         let mut fragment_data = [0u8; 128];
         let bytes = data.as_bytes();
@@ -123,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_add_sender_command() {
-        let (mut server, events_recv, commands_send, _) = create_test_server();
+        let (mut server, _events_recv, _commands_send, _) = create_test_server();
         let (drone_send, _) = unbounded();
         let drone_id = 10;
 
@@ -157,7 +115,7 @@ mod tests {
 
         // Crea un frammento da un client non registrato
         let fragment = create_fragment(0, 1, "test message");
-        let routing_header = SourceRoutingHeader::new(vec![client_id, server.id], 1);
+        let routing_header = SourceRoutingHeader::new(vec![client_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
             session_id,
@@ -174,15 +132,15 @@ mod tests {
     #[test]
     fn test_client_registration() {
         let client_id = 5;
-        let (mut server, events_recv, _, _) = create_test_server_with_topology(vec![client_id]);
+        let (mut server, events_recv, _, _,) = create_test_server_with_drone_topology(vec![client_id]);
         let session_id = 100;
 
         // Crea messaggio di registrazione
         let register_msg = ChatRequest::Register(client_id);
         let msg_str = serde_json::to_string(&register_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-
-        let routing_header = SourceRoutingHeader::new(vec![client_id, server.id], 1);
+        
+        let routing_header = SourceRoutingHeader::new(vec![client_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
             session_id,
@@ -202,7 +160,7 @@ mod tests {
     #[test]
     fn test_message_fragmentation_and_reconstruction() {
         let client_id = 5;
-        let (mut server, events_recv, _, _) = create_test_server_with_topology(vec![client_id]);
+        let (mut server, events_recv, _, _) = create_test_server_with_drone_topology(vec![client_id]);
         let session_id = 100;
 
         // Crea un messaggio più lungo che richiede effettivamente più frammenti
@@ -239,7 +197,7 @@ mod tests {
 
         // Invia tutti i frammenti
         for fragment in fragments {
-            let routing_header = SourceRoutingHeader::new(vec![client_id, server.id], 1);
+            let routing_header = SourceRoutingHeader::new(vec![client_id, 100, server.id], 1);
             let packet = Packet {
                 routing_header,
                 session_id,
@@ -262,12 +220,12 @@ mod tests {
     #[test]
     fn test_ack_handling() {
         let client_id = 5;
-        let (mut server, _, _, _) = create_test_server_with_topology(vec![client_id]);
+        let (mut server, _, _, _) = create_test_server_with_drone_topology(vec![client_id]);
         let session_id = 100;
 
         // Crea un Ack
         let ack = Ack { fragment_index: 0 };
-        let routing_header = SourceRoutingHeader::new(vec![client_id, server.id], 1);
+        let routing_header = SourceRoutingHeader::new(vec![client_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
             session_id,
@@ -290,11 +248,11 @@ mod tests {
     fn test_nack_handling() {
         let drone_id = 10;
         let client_id = 5;
-        let (mut server, _, _, _) = create_test_server_with_topology(vec![client_id]);
+        let (mut server, _, _, _) = create_test_server_with_drone_topology(vec![client_id]);
         let session_id = 100;
 
         // Aggiungi il drone alla topologia del network manager
-        server.network_manager.topology.insert(drone_id, (std::collections::HashSet::new(), 1.0, 1.0));
+        server.network_manager.topology.insert(drone_id, (HashSet::new(), 1.0, 1.0));
 
         // Crea un messaggio in uscita
         let test_msg = ChatResponse::ClientList(vec![1, 2, 3]);
@@ -306,7 +264,7 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::Dropped,
         };
-        let routing_header = SourceRoutingHeader::new(vec![drone_id, server.id], 0);
+        let routing_header = SourceRoutingHeader::new(vec![client_id, drone_id, server.id], 0);
         let packet = Packet {
             routing_header,
             session_id,
@@ -321,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_flood_request_handling() {
-        let (mut server, rx_nodeEvent, _, _) = create_test_server();
+        let (mut server, rx_node_event, _, _) = create_test_server();
         let drone_id = 10;
         let session_id = 100;
 
@@ -339,7 +297,7 @@ mod tests {
         };
 
         server.packet_handler(packet);
-        let event = rx_nodeEvent.try_recv();
+        let _event = rx_node_event.try_recv();
 
         // Verifica che sia stata inviata una FloodResponse
         let response = drone_recv.try_recv();
@@ -388,7 +346,7 @@ mod tests {
     fn test_send_message_request() {
         let sender_id = 5;
         let receiver_id = 6;
-        let (mut server, events_recv, _, _) = create_test_server_with_topology(vec![sender_id, receiver_id]);
+        let (mut server, events_recv, _, _) = create_test_server_with_drone_topology(vec![sender_id, receiver_id]);
         let session_id = 100;
 
         // Crea messaggio di invio
@@ -399,8 +357,8 @@ mod tests {
         };
         let msg_str = serde_json::to_string(&send_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-
-        let routing_header = SourceRoutingHeader::new(vec![sender_id, server.id], 1);
+        
+        let routing_header = SourceRoutingHeader::new(vec![sender_id, 100, server.id],1);
         let packet = Packet {
             routing_header,
             session_id,
@@ -445,7 +403,7 @@ mod tests {
     #[test]
     fn test_try_resend() {
         let dest_id = 5;
-        let (mut server, events_recv, _, _) = create_test_server_with_drone_topology(vec![dest_id]);
+        let (mut server, _events_recv, _, _) = create_test_server_with_drone_topology(vec![dest_id]);
 
         // Aggiungi un sender per la destinazione
         let (dest_send, dest_recv) = unbounded();
@@ -510,7 +468,7 @@ mod tests {
     fn test_error_wrong_client_id() {
         let sender_id = 5;
         let unknown_receiver_id = 45;
-        let (mut server, events_recv, _, _) = create_test_server_with_topology(vec![sender_id]);
+        let (mut server, events_recv, _, _) = create_test_server_with_drone_topology(vec![sender_id]);
         let session_id = 100;
 
         // Crea messaggio per client non registrato
@@ -521,8 +479,8 @@ mod tests {
         };
         let msg_str = serde_json::to_string(&send_msg).unwrap();
         let fragment = create_fragment(0, 1, &msg_str);
-
-        let routing_header = SourceRoutingHeader::new(vec![sender_id, server.id], 1);
+        
+        let routing_header = SourceRoutingHeader::new(vec![sender_id, 100, server.id], 1);
         let packet = Packet {
             routing_header,
             session_id,
@@ -545,7 +503,8 @@ mod tests {
     #[test]
     fn test_network_topology_initialization() {
         let client_ids = vec![5, 6, 7];
-        let (server, _, _, _) = create_test_server_with_topology(client_ids.clone());
+        //let (server, _, _, _) = create_test_server_with_topology(client_ids.clone());
+        let (server, _, _, _) = create_test_server_with_drone_topology(client_ids.clone());
 
         // Verifica che tutti i client siano nella topologia
         for client_id in client_ids.iter() {
@@ -561,7 +520,8 @@ mod tests {
         // Verifica che le route dirette siano state create correttamente
         for client_id in client_ids.iter() {
             let route = server.network_manager.routes.get(client_id).unwrap();
-            assert_eq!(route, &vec![server.id, *client_id]);
+            //assert_eq!(route, &vec![server.id, *client_id]);
+            assert_eq!(route, &vec![server.id, 100, *client_id]);
         }
     }
 
@@ -610,7 +570,7 @@ mod tests {
         let session_id = 100;
 
         // Aggiungi il sender per il drone intermedio
-        let (drone_send, drone_recv) = unbounded();
+        let (drone_send, _drone_recv) = unbounded();
         server.packet_send.insert(drone_id, drone_send);
 
         // Crea messaggio di registrazione da inviare
@@ -712,7 +672,7 @@ mod tests {
         for client_id in client_ids.iter() {
             let route = server.network_manager.routes.get(client_id).unwrap();
             assert_eq!(route, &vec![server.id, drone_id, *client_id]);
-            assert!(route.len() == 3); // server -> drone -> client
+            assert_eq!(route.len(), 3); // server -> drone -> client
             assert!(route.contains(&drone_id)); // Deve contenere il drone intermedio
         }
 
