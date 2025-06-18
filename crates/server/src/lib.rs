@@ -48,7 +48,7 @@ impl ChatServer {
         }
     }
 
-    fn run(&mut self) {
+    pub fn run(&mut self) {
         self.flood_initializer();
 
         loop {
@@ -91,7 +91,6 @@ impl ChatServer {
             //da completare
             PacketType::MsgFragment(fragment) => {
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
-                //todo controparte in message, poi cacellare questo
                 if !self.server_message_manager.is_registered(&key.1) {
                     warn!("Client {} not registered", key.1);
                     
@@ -109,7 +108,7 @@ impl ChatServer {
                     self.send_event(NodeEvent::MessageRecv(recv_msg));
 
                     if let Some(wrapper) =
-                        self.server_message_manager.message_handling(&key, self.last_session_id + 1)
+                        self.server_message_manager.message_handling(key, self.last_session_id + 1)
                     {
                         self.last_session_id += 1;
                         self.send_event(NodeEvent::CreateMessage(wrapper.clone()));
@@ -120,7 +119,7 @@ impl ChatServer {
                                         .get_route(&wrapper.destination)
                                         .unwrap(),
                                 ),
-                                session_id: wrapper.session_id, //todo decidere come metterci il last_session_id
+                                session_id: wrapper.session_id,
                                 pack_type: PacketType::MsgFragment(frag),
                             })
                         }
@@ -130,7 +129,7 @@ impl ChatServer {
             //da completare, mancano controlli (?)
             PacketType::Ack(ack) => {
                 self.network_manager
-                    .update_from_ack(packet.routing_header.hops); //todo controllare il funzionamento, ack dovrebbe essere inviato da client/server
+                    .update_from_ack(packet.routing_header.hops);
                 self.server_message_manager
                     .insert_ack(ack, &packet.session_id);
             }
@@ -195,9 +194,7 @@ impl ChatServer {
                         PacketType::Ack(_) | PacketType::FloodResponse(_) => {
                             self.send_event(ControllerShortcut(packet.clone()));
                         }
-                        _ => {
-                            //todo (?)
-                        }
+                        _ => {}
                     }
 
                     self.network_manager.remove_node(next_hop);
@@ -227,7 +224,7 @@ impl ChatServer {
         let source_routing = SourceRoutingHeader::initialize(vec![self.id]);
         let packet = Packet::new_flood_request(source_routing, self.last_session_id, request);
         self.last_session_id += 1; //forse non va bene? Non ne ho idea
-        for (_, sender) in &self.packet_send {
+        for sender in self.packet_send.values() {
             let _ = sender.send(packet.clone());
         }
     }

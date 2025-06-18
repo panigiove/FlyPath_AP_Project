@@ -1,15 +1,20 @@
 use log::{info, warn};
 use message::{ChatRequest, ChatResponse, RecvMessageWrapper, SentMessageWrapper};
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
-use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, Fragment, Packet};
+use wg_2024::network::{NodeId};
+use wg_2024::packet::{Ack, Fragment};
 
 #[derive(Clone, Debug)]
 pub struct ServerMessageManager {
     incoming_fragments: HashMap<(u64, NodeId), RecvMessageWrapper>,
     pub(crate) outgoing_packets: HashMap<u64, SentMessageWrapper>,
     registered_clients: HashSet<NodeId>,
+}
+
+impl Default for ServerMessageManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ServerMessageManager {
@@ -23,7 +28,7 @@ impl ServerMessageManager {
     pub fn store_fragment(&mut self, key: &(u64, NodeId), fragment: Fragment) {
         if !self.incoming_fragments.contains_key(key) {
             self.incoming_fragments.insert(
-                key.clone(),
+                *key,
                 RecvMessageWrapper::new_from_fragment(key.0, key.1, fragment),
             );
         } else {

@@ -1,8 +1,8 @@
 use log::info;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet};
+use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 
 #[derive(Clone, Debug)]
 pub struct NetworkManager {
@@ -31,13 +31,11 @@ impl NetworkManager {
     }
     pub fn update_from_flood_response(&mut self, flood_response: FloodResponse) {
         for n in 0..flood_response.path_trace.len() {
-            if !self.topology.contains_key(&flood_response.path_trace[n].0) {
-                if !(flood_response.path_trace[n].1 == NodeType::Server) {
+            if !self.topology.contains_key(&flood_response.path_trace[n].0) && !(flood_response.path_trace[n].1 == NodeType::Server) {
                     self.topology
                         .insert(flood_response.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
                     if flood_response.path_trace[n].1 == NodeType::Client {
                         self.client_list.insert(flood_response.path_trace[n].0);
-                    }
                 }
             }
             if n > 0 {
@@ -45,14 +43,14 @@ impl NetworkManager {
                     .get_mut(&flood_response.path_trace[n].0)
                     .unwrap()
                     .0
-                    .insert(flood_response.path_trace[n - 1].0.clone());
+                    .insert(flood_response.path_trace[n - 1].0);
             }
             if n < flood_response.path_trace.len() -1 {
                 self.topology
                     .get_mut(&flood_response.path_trace[n].0)
                     .unwrap()
                     .0
-                    .insert(flood_response.path_trace[n + 1].0.clone());
+                    .insert(flood_response.path_trace[n + 1].0);
             }
         }
 
@@ -83,7 +81,7 @@ impl NetworkManager {
 
     pub fn update_from_ack(&mut self, hops: Vec<NodeId>) {
         for hop in hops.iter() {
-            if !self.client_list.contains(&hop) || self.server_id != *hop {
+            if !self.client_list.contains(hop) || self.server_id != *hop {
                 self.topology.get_mut(hop).unwrap().2 += 1.0;
                 self.topology.get_mut(hop).unwrap().1 += 1.0;
             }
@@ -140,12 +138,12 @@ impl NetworkManager {
             current_node = queue.pop_front().unwrap();
 
             for vec_node_id in self.topology.get(&current_node).unwrap().0.iter() {
-                if dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap()
-                    < *dist.get(&vec_node_id).unwrap()
+                if dist.get(&current_node).unwrap() + psp.get(vec_node_id).unwrap()
+                    < *dist.get(vec_node_id).unwrap()
                 {
                     dist.insert(
                         *vec_node_id,
-                        dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap(),
+                        dist.get(&current_node).unwrap() + psp.get(vec_node_id).unwrap(),
                     );
                     prev.insert(*vec_node_id, current_node);
                     queue.push_back(*vec_node_id);

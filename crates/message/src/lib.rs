@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet};
 
-use crate::ChatResponse::MessageFrom;
 use crossbeam_channel::Sender;
 
 pub const FRAGMENT_DSIZE: usize = 128;
