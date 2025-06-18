@@ -137,11 +137,11 @@ impl Worker {
 
     fn _packet_handler(&mut self, packet: Packet) {
         let session = packet.session_id;
+        let path = packet.routing_header.hops.clone();
         if let Some(from) = packet.routing_header.source() {
             match &packet.pack_type {
                 FloodRequest(request) => {
                     debug!("PACK: flood request handling from {:?}", from);
-                    // let channels = self.channels.borrow();
 
                     let mut response = request
                         .get_incremented(self.my_id, Client)
@@ -201,7 +201,7 @@ impl Worker {
                     }
                 }
                 Ack(ack) => {
-                    self.network.update_network_from_ack(&from);
+                    self.network.state.increment_weight_along_path(&path, -1);
                     self.message.ack_and_build_message(ack, session);
                 }
                 Nack(nack) => {

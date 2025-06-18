@@ -337,4 +337,48 @@ mod tests {
         assert!(result);
         assert_eq!(*state.routing_table.get(&sid).unwrap(), expected_path);
     }
+
+    #[test]
+    fn test_update_network_from_path() {
+        let mut state = setup_state();
+        let my_id = state.topology[state.start_idx];
+
+        let sid = 100;
+        let nid = 1;
+        state.add_link(my_id, nid, NodeType::Client, NodeType::Drone, 2);
+        state.add_link(nid, sid, NodeType::Drone, NodeType::Server, 2);
+
+        let idx_client = state.start_idx;
+        let idx_drone = state.id_to_idx[&nid];
+        let idx_server = state.id_to_idx[&sid];
+
+        let edge_client_drone = state.topology.find_edge(idx_client, idx_drone).unwrap();
+        let edge_drone_client = state.topology.find_edge(idx_drone, idx_client).unwrap();
+        let edge_drone_server = state.topology.find_edge(idx_drone, idx_server).unwrap();
+
+        // Verify initial weights
+        assert_eq!(state.topology.edge_weight(edge_client_drone), Some(&2));
+        assert_eq!(state.topology.edge_weight(edge_drone_client), Some(&2));
+        assert_eq!(state.topology.edge_weight(edge_drone_server), Some(&2));
+
+        let result_path = state.get_server_path(&sid).unwrap();
+        state.increment_weight_along_path(&result_path, -1);
+
+        // Verify weights decreased by 1 along the path
+        assert_eq!(state.topology.edge_weight(edge_client_drone), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_drone_client), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_drone_server), Some(&1));
+
+        // Test with positive increment
+        state.increment_weight_along_path(&result_path, 3);
+        assert_eq!(state.topology.edge_weight(edge_client_drone), Some(&4));
+        assert_eq!(state.topology.edge_weight(edge_drone_client), Some(&4));
+        assert_eq!(state.topology.edge_weight(edge_drone_server), Some(&4));
+
+        // Test minimum weight constraint (should not go below 1)
+        state.increment_weight_along_path(&result_path, -10);
+        assert_eq!(state.topology.edge_weight(edge_client_drone), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_drone_client), Some(&1));
+        assert_eq!(state.topology.edge_weight(edge_drone_server), Some(&1));
+    }
 }
