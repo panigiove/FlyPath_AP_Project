@@ -182,43 +182,55 @@ impl NetworkState {
         if let Some(&node_idx) = self.id_to_idx.get(nid) {
             let outgoing_neighbors: Vec<_> = self.topology.neighbors(node_idx).collect();
             for neighbor_idx in outgoing_neighbors {
-                if let Some(edge_idx) = self.topology.find_edge(node_idx, neighbor_idx) {
-                    if let Some(&current_weight) = self.topology.edge_weight(edge_idx) {
-                        let new_weight = if increment >= 0 {
-                            current_weight.saturating_add(increment as u32)
-                        } else {
-                            let decrement = (-increment) as u32;
-                            if current_weight > decrement {
-                                current_weight - decrement
-                            } else {
-                                1
-                            }
-                        };
-                        self.topology
-                            .update_edge(node_idx, neighbor_idx, new_weight);
-                    }
-                }
+                self.update_edge_weight_if_exists(node_idx, neighbor_idx, increment);
             }
 
             let all_nodes: Vec<_> = self.topology.node_indices().collect();
             for other_idx in all_nodes {
                 if other_idx != node_idx {
-                    if let Some(edge_idx) = self.topology.find_edge(other_idx, node_idx) {
-                        if let Some(&current_weight) = self.topology.edge_weight(edge_idx) {
-                            let new_weight = if increment >= 0 {
-                                current_weight.saturating_add(increment as u32)
-                            } else {
-                                let decrement = (-increment) as u32;
-                                if current_weight > decrement {
-                                    current_weight - decrement
-                                } else {
-                                    1
-                                }
-                            };
-                            self.topology.update_edge(other_idx, node_idx, new_weight);
-                        }
-                    }
+                    self.update_edge_weight_if_exists(other_idx, node_idx, increment);
                 }
+            }
+        }
+    }
+
+    pub fn increment_weight_along_path(&mut self, path: &[NodeId], increment: i32) {
+        if path.len() < 2 {
+            return;
+        }
+
+        for window in path.windows(2) {
+            let from_nid = &window[0];
+            let to_nid = &window[1];
+
+            if let (Some(&from_idx), Some(&to_idx)) =
+                (self.id_to_idx.get(from_nid), self.id_to_idx.get(to_nid))
+            {
+                self.update_edge_weight_if_exists(from_idx, to_idx, increment);
+                self.update_edge_weight_if_exists(to_idx, from_idx, increment);
+            }
+        }
+    }
+
+    fn update_edge_weight_if_exists(
+        &mut self,
+        from_idx: NodeIndex,
+        to_idx: NodeIndex,
+        increment: i32,
+    ) {
+        if let Some(edge_idx) = self.topology.find_edge(from_idx, to_idx) {
+            if let Some(&current_weight) = self.topology.edge_weight(edge_idx) {
+                let new_weight = if increment >= 0 {
+                    current_weight.saturating_add(increment as u32)
+                } else {
+                    let decrement = (-increment) as u32;
+                    if current_weight > decrement {
+                        current_weight - decrement
+                    } else {
+                        1
+                    }
+                };
+                self.topology.update_edge(from_idx, to_idx, new_weight);
             }
         }
     }
@@ -547,14 +559,6 @@ impl NetworkManager {
                 self.state.server_list.remove(origin);
                 self.state.id_to_idx.remove(origin);
             }
-        }
-    }
-
-    pub fn update_network_from_ack(&mut self, origin: &NodeId) {
-        debug!("Decrement weight around {:?}", origin);
-        self.state.increment_weight_around_node(origin, -1);
-        if !self.state.recompute_all_routes_to_server(Some(origin)) {
-            self.send_flood_request();
         }
     }
 }
