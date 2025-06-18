@@ -30,22 +30,30 @@ impl NetworkManager {
         }
     }
     pub fn update_from_flood_response(&mut self, flood_response: FloodResponse) {
-        for n in 0..flood_response.path_trace.len() - 2 {
+        for n in 0..flood_response.path_trace.len() {
             if !self.topology.contains_key(&flood_response.path_trace[n].0) {
-                if flood_response.path_trace[n].1 == NodeType::Client {
+                if !(flood_response.path_trace[n].1 == NodeType::Server) {
                     self.topology
                         .insert(flood_response.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
-                    self.client_list.insert(flood_response.path_trace[n].0);
-                } else if !(flood_response.path_trace[n].1 == NodeType::Server) {
-                    self.topology
-                        .insert(flood_response.path_trace[n].0, (HashSet::new(), 0.0, 1.0));
+                    if flood_response.path_trace[n].1 == NodeType::Client {
+                        self.client_list.insert(flood_response.path_trace[n].0);
+                    }
                 }
             }
-            self.topology
-                .get_mut(&flood_response.path_trace[n].0)
-                .unwrap()
-                .0
-                .insert(flood_response.path_trace[n + 1].0.clone());
+            if n > 0 {
+                self.topology
+                    .get_mut(&flood_response.path_trace[n].0)
+                    .unwrap()
+                    .0
+                    .insert(flood_response.path_trace[n - 1].0.clone());
+            }
+            if n < flood_response.path_trace.len() -1 {
+                self.topology
+                    .get_mut(&flood_response.path_trace[n].0)
+                    .unwrap()
+                    .0
+                    .insert(flood_response.path_trace[n + 1].0.clone());
+            }
         }
 
         self.generate_all_routes();
@@ -54,7 +62,6 @@ impl NetworkManager {
         self.n_errors += 1;
     }
     pub fn update_from_nack(&mut self, nack_source: NodeId, nack: Nack) {
-        self.topology.get_mut(&nack_source).unwrap().2 += 1.0;
         match nack.nack_type {
             NackType::DestinationIsDrone => {
                 info!("Destination is drone detected");
@@ -62,6 +69,7 @@ impl NetworkManager {
             }
             NackType::Dropped => {
                 info!("Dropped detected");
+                self.topology.get_mut(&nack_source).unwrap().2 += 1.0;
                 self.n_dropped += 1;
             }
             NackType::ErrorInRouting(node) | NackType::UnexpectedRecipient(node) => {
@@ -73,11 +81,15 @@ impl NetworkManager {
         }
     }
 
-    pub fn update_from_ack(&mut self, ack_source: NodeId) {
-        self.topology.get_mut(&ack_source).unwrap().2 += 1.0;
-        self.topology.get_mut(&ack_source).unwrap().1 += 1.0;
+    pub fn update_from_ack(&mut self, hops: Vec<NodeId>) {
+        for hop in hops.iter() {
+            if !self.client_list.contains(&hop) || self.server_id != *hop {
+                self.topology.get_mut(hop).unwrap().2 += 1.0;
+                self.topology.get_mut(hop).unwrap().1 += 1.0;
+            }
+        }
 
-        info!("Ack arrived from {}", ack_source);
+        info!("Ack arrived from {}", hops[0]);
     }
     pub fn update_routing_path(&mut self, routing_header: &mut SourceRoutingHeader){
         let dest = routing_header.destination().unwrap();
@@ -116,10 +128,11 @@ impl NetworkManager {
             psp.insert(*node, -prob.ln());
             dist.insert(*node, f64::MAX);
         }
-
-        for node in self.topology.get(&self.server_id).unwrap().0.iter() {
+        
+        queue.push_back(self.server_id);
+        /*for node in self.topology.get(&self.server_id).unwrap().0.iter() {
             queue.push_back(*node);
-        }
+        }*/
 
         dist.insert(self.server_id, *psp.get(&self.server_id).unwrap());
 
@@ -129,7 +142,6 @@ impl NetworkManager {
             for vec_node_id in self.topology.get(&current_node).unwrap().0.iter() {
                 if dist.get(&current_node).unwrap() + psp.get(&vec_node_id).unwrap()
                     < *dist.get(&vec_node_id).unwrap()
-                    && !self.client_list.contains(&vec_node_id)
                 {
                     dist.insert(
                         *vec_node_id,
