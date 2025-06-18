@@ -4,14 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["serialize"] }
-initializer = { path = "crates/initializer"}
-
-
+eframe = "0.29"
+egui = "0.29"
+emath = "0.29"
+epaint = "0.29"
+crossbeam-channel = "0.5"
+env_logger = "0.10"
+controller = { path = "crates/controller" }
+client = { path = "crates/client" }
+server = { path = "crates/server" }
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 [workspace]
-members = [ 
-    "crates/initializer",
+members = [
+    "crates/controller",
     "crates/client",
-    "crates/message", "crates/server",
-    "crates/assets",
+    "crates/server",
+    "crates/message",
+    "crates/initializer",
 ]

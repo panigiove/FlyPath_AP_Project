@@ -128,7 +128,7 @@ impl NetworkManager {
             psp.insert(*node, -prob.ln());
             dist.insert(*node, f64::MAX);
         }
-        
+
         queue.push_back(self.server_id);
         /*for node in self.topology.get(&self.server_id).unwrap().0.iter() {
             queue.push_back(*node);
