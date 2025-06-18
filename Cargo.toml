@@ -8,7 +8,7 @@ eframe = "0.29"
 egui = "0.29"
 emath = "0.29"
 epaint = "0.29"
-crossbeam-channel = "0.5"
+crossbeam-channel = "0.5.13"
 env_logger = "0.10"
 controller = { path = "crates/controller" }
 client = { path = "crates/client" }

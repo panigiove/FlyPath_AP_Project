@@ -8,3 +8,8 @@ wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["
 toml = "0.8.19"
 serde = { version = "1.0.217", features = ["derive"] }
 thiserror = "2.0.12"
+crossbeam-channel = "0.5.15"
+server = {path = "../server"}
+message = {path = "../message"}
+client = {path = "../client"}
+controller = {path = "../controller"}

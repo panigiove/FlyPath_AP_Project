@@ -1,10 +1,17 @@
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::{fs, thread};
 use std::path::Path;
 use thiserror::Error;
 use wg_2024::config::{Config, Drone};
 use wg_2024::network::NodeId;
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use wg_2024::controller::{DroneCommand, DroneEvent};
+use wg_2024::packet::Packet;
+use message::{NodeCommand, NodeEvent};
+use client::comunication::{FromUiCommunication, ToUICommunication};
+use client::worker::Worker;
+use server::ChatServer;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("I/O error reading file: {0}")]
@@ -55,10 +62,86 @@ fn validate(cfg: &Config) -> Result<(), ConfigError> {
     Ok(())
 }
 
-pub fn start() {
+pub fn start() -> (HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>, HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>) {
     match parse_config("config.toml") {
         Ok(cfg) => {
             println!("Configurazione valida: {:#?}", cfg);
+            
+            let mut sender_receiver_pair_drone_event: HashMap<NodeId, (Sender<DroneEvent>, Receiver<DroneEvent>)> = HashMap::new();
+            let mut sender_receiver_drone_command: HashMap<NodeId, (Sender<DroneCommand>, Receiver<DroneCommand>)> = HashMap::new();
+            let mut sender_receiver_packet: HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)> = HashMap::new();
+            let mut sender_receiver_node_command: HashMap<NodeId, (Sender<NodeCommand>, Receiver<NodeCommand>)> = HashMap::new();
+            let mut sender_receiver_node_event: HashMap<NodeId, (Sender<NodeEvent>, Receiver<NodeEvent>)> = HashMap::new();
+            let mut sender_receiver_node_to_ui_communication: HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)> = HashMap::new();
+            let mut sender_receiver_node_from_ui_communication: HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)> = HashMap::new();
+            
+            for node in cfg.drone.iter() {
+                let (sender_drone_event, receiver_drone_event) = unbounded::<DroneEvent>();
+                let (sender_drone_command, receiver_drone_command) = unbounded::<DroneCommand>();
+                let (sender_packet, receiver_packet) = unbounded::<Packet>();
+                sender_receiver_pair_drone_event.insert(node.id, (sender_drone_event, receiver_drone_event));
+                sender_receiver_drone_command.insert(node.id, (sender_drone_command, receiver_drone_command));
+                sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet)) ;
+            }
+
+            for node in cfg.client.iter() {
+                let (sender_node_event, receiver_node_event) = unbounded::<NodeEvent>();
+                let (sender_node_command, receiver_node_command) = unbounded::<NodeCommand>();
+                let (sender_packet, receiver_packet) = unbounded::<Packet>();
+                let (sender_to_ui_communication, receiver_to_ui_communication) = unbounded::<ToUICommunication>();
+                let (sender_from_ui_communication, receiver_from_ui_communication) = unbounded::<FromUiCommunication>();
+                sender_receiver_node_event.insert(node.id, (sender_node_event, receiver_node_event));
+                sender_receiver_node_command.insert(node.id, (sender_node_command, receiver_node_command));
+                sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet));
+                sender_receiver_node_to_ui_communication.insert(node.id, (sender_to_ui_communication, receiver_to_ui_communication));
+                sender_receiver_node_from_ui_communication.insert(node.id, (sender_from_ui_communication, receiver_from_ui_communication));
+            }
+            
+            for node in cfg.server.iter() {
+                let (sender_node_event, receiver_node_event) = unbounded::<NodeEvent>();
+                let (sender_node_command, receiver_node_command) = unbounded::<NodeCommand>();
+                let (sender_packet, receiver_packet) = unbounded::<Packet>();
+                sender_receiver_node_event.insert(node.id, (sender_node_event, receiver_node_event));
+                sender_receiver_node_command.insert(node.id, (sender_node_command, receiver_node_command));
+                sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet));
+            }
+            
+            
+            for node in cfg.drone.iter() {
+                let drone = thread::spawn(move || {
+                    
+                });
+            }
+            
+            for node in cfg.client {
+                let mut sender_hash = HashMap::new();
+                for adj in node.connected_drone_ids{
+                    sender_hash.insert(adj, sender_receiver_packet.get(&adj).unwrap().0.clone());
+                }
+                let receiver_packet =  sender_receiver_packet.get(&node.id).unwrap().1.clone();
+                let sender_node_event = sender_receiver_node_event.get(&node.id).unwrap().0.clone();
+                let sender_node_to_ui_communication = sender_receiver_node_to_ui_communication.get(&node.id).unwrap().0.clone();
+                let receiver_node_command = sender_receiver_node_command.get(&node.id).unwrap().1.clone();
+                let receiver_node_from_ui_communication = sender_receiver_node_from_ui_communication.get(&node.id).unwrap().1.clone();
+                let client = thread::spawn(move || {
+                    let node = Worker::new(node.id, sender_hash, sender_node_event, sender_node_to_ui_communication, receiver_packet, receiver_node_command, receiver_node_from_ui_communication);
+                });
+            }
+            
+            for node in cfg.server.clone() {
+                let mut sender_hash = HashMap::new();
+                for adj in node.connected_drone_ids{
+                    sender_hash.insert(adj, sender_receiver_packet.get(&adj).unwrap().0.clone());
+                }
+                let receiver_packet =  sender_receiver_packet.get(&node.id).unwrap().1.clone();
+                let sender_node_event = sender_receiver_node_event.get(&node.id).unwrap().0.clone();
+                let receiver_node_command = sender_receiver_node_command.get(&node.id).unwrap().1.clone();
+                let server = thread::spawn(move || {
+                    let node = ChatServer::new(node.id, sender_node_event, receiver_node_command, receiver_packet, sender_hash);
+                });
+            }
+            
+            (sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication)
         }
         Err(e) => {
             eprintln!("Errore nella configurazione: {}", e);
