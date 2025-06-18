@@ -7,7 +7,8 @@ use controller::view::graph::GraphApp;
 use controller::utility::{GraphAction, ButtonsMessages, MessageType, NodeType};
 use wg_2024::network::NodeId;
 use client::ui::UiState;
-use controller::
+use controller::controller::Controller;
+use controller::run_controller;
 
 fn main() -> Result<(), eframe::Error> {
     // Initialize empty collections for the network
@@ -24,7 +25,7 @@ fn main() -> Result<(), eframe::Error> {
     let client_ui_state = UiState::new();
 
     // Run the controller application
-    controller::run_controller(
+    let mut controller = Controller::new(
         drones,
         drones_type,
         drone_senders,
@@ -35,8 +36,9 @@ fn main() -> Result<(), eframe::Error> {
         send_command_node,
         reciver_event,
         receriver_node_event,
-        client_ui_state,
-    )
+        &eframe::CreationContext::default(), // ← se richiesto dal costruttore
+    );
+    controller.spawn_threads()
 }
 
 // Alternative main with some initial network setup
@@ -58,7 +60,7 @@ fn main_with_initial_network() -> Result<(), eframe::Error> {
     // This would need to be done through the controller's spawn_drone method
     // after the app starts
 
-    controller::run_controller(
+    run_controller(
         drones,
         drones_type,
         drone_senders,
@@ -70,5 +72,5 @@ fn main_with_initial_network() -> Result<(), eframe::Error> {
         reciver_event,
         receriver_node_event,
         client_ui_state,
-    )
+    )?;
 }
