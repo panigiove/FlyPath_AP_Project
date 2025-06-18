@@ -3,17 +3,6 @@ name = "FlyPath_AP_Project"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-eframe = "0.29"
-egui = "0.29"
-emath = "0.29"
-epaint = "0.29"
-crossbeam-channel = "0.5.13"
-env_logger = "0.10"
-controller = { path = "crates/controller" }
-client = { path = "crates/client" }
-server = { path = "crates/server" }
-wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 [workspace]
 members = [
     "crates/controller",
@@ -22,3 +11,16 @@ members = [
     "crates/message",
     "crates/initializer",
 ]
+
+[dependencies]
+eframe = "0.29.0"
+egui = "0.29.0"
+emath = "0.29"
+epaint = "0.29"
+crossbeam-channel = "0.5.13"
+env_logger = "0.10"
+controller = { path = "crates/controller" }
+client = { path = "crates/client" }
+server = { path = "crates/server" }
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
+initializer = { path="crates/initializer" }

@@ -1,76 +1,99 @@
+use client::comunication::{FromUiCommunication, ToUICommunication};
+use client::ui::{ClientState, Ui, UiState};
+use crossbeam_channel::{Receiver, Sender};
+use eframe::{egui, Frame};
+use initializer::start;
 use std::collections::HashMap;
-use crossbeam_channel::unbounded;
-use eframe::egui;
-
-// Import dai crates del workspace
-use controller::view::graph::GraphApp;
-use controller::utility::{GraphAction, ButtonsMessages, MessageType, NodeType};
+use std::process;
+use std::sync::{Arc, Mutex};
+use egui::Context;
 use wg_2024::network::NodeId;
-use client::ui::UiState;
-use controller::controller::Controller;
-use controller::run_controller;
 
-fn main() -> Result<(), eframe::Error> {
-    // Initialize empty collections for the network
-    let drones = HashMap::new();
-    let drones_type = HashMap::new();
-    let drone_senders = HashMap::new();
-    let clients = HashMap::new();
-    let servers = HashMap::new();
-    let connections = HashMap::new();
-    let send_command_drone = HashMap::new();
-    let send_command_node = HashMap::new();
-    let reciver_event = HashMap::new();
-    let receriver_node_event = HashMap::new();
-    let client_ui_state = UiState::new();
+// TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
+// TODO: gentle crash
+fn main() -> eframe::Result {
+    let (to_ui, from_ui, _handlers) = start().unwrap_or_else(|e| {
+        eprintln!("Errore durante l'avvio del sistema: {}", e);
+        process::exit(1);
+    });
 
-    // Run the controller application
-    let mut controller = Controller::new(
-        drones,
-        drones_type,
-        drone_senders,
-        clients,
-        servers,
-        connections,
-        send_command_drone,
-        send_command_node,
-        reciver_event,
-        receriver_node_event,
-        &eframe::CreationContext::default(), // ← se richiesto dal costruttore
-    );
-    controller.spawn_threads()
+    let client_ui_state = _setup_ui_client_state(to_ui, from_ui);
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([620.0, 540.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "FLYPATH",
+        options,
+        Box::new(|_cc| Ok(Box::<App>::new(App::new(client_ui_state)))),
+    )
 }
 
-// Alternative main with some initial network setup
-fn main_with_initial_network() -> Result<(), eframe::Error> {
-    // You can add initial nodes here if needed
-    let mut drones = HashMap::new();
-    let mut drones_type = HashMap::new();
-    let mut drone_senders = HashMap::new();
-    let mut clients = HashMap::new();
-    let mut servers = HashMap::new();
-    let mut connections = HashMap::new();
-    let mut send_command_drone = HashMap::new();
-    let mut send_command_node = HashMap::new();
-    let mut reciver_event = HashMap::new();
-    let mut receriver_node_event = HashMap::new();
-    let client_ui_state = UiState::new();
-
-    // Example: Create initial drone
-    // This would need to be done through the controller's spawn_drone method
-    // after the app starts
-
-    run_controller(
-        drones,
-        drones_type,
-        drone_senders,
-        clients,
-        servers,
-        connections,
-        send_command_drone,
-        send_command_node,
-        reciver_event,
-        receriver_node_event,
-        client_ui_state,
-    )?;
+struct App {
+    client_ui_state: Arc<Mutex<UiState>>,
 }
+
+impl App {
+    fn new (ui_state: UiState) -> Self {
+        Self {
+            client_ui_state: Arc::new(Mutex::new(ui_state)),
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            //TODO: draw controller
+            ui.label("Hello from controller");
+        });
+
+
+        let ui_state_clone = self.client_ui_state.clone();
+        ctx.show_viewport_deferred(
+            egui::ViewportId::from_hash_of("CLIENT UI"),
+            egui::ViewportBuilder::default()
+                .with_title("Client Chat")
+                .with_inner_size([640.0, 520.0]),
+            move |ctx, class| {
+                assert!(
+                    class == egui::ViewportClass::Deferred,
+                    "This egui backend doesn't support multiple viewports"
+                );
+                egui::CentralPanel::default().show(ctx, |ui| match ui_state_clone.lock() {
+                    Ok(mut state) => {
+                        let messages_handled = Ui::handle_drone_messages(&mut state);
+                        if messages_handled {
+                            ctx.request_repaint();
+                        }
+                        Ui::render(ui, &mut state)
+                    }
+                    Err(_poisoned) => {
+                        ui.label("Error: State mutex is poisoned");
+                    }
+                });
+            },
+        );
+    }
+}
+
+fn _setup_ui_client_state(
+    to_ui: HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>,
+    from_ui: HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>,
+) -> UiState {
+    let mut ui_state = UiState::new();
+
+    for (node_id, (_tx_to_ui, rx_to_ui)) in to_ui {
+        if let Some((tx_from_ui, _rx_from_ui_unused)) = from_ui.get(&node_id) {
+            let client_state = ClientState::new(
+                node_id,
+                rx_to_ui,
+                tx_from_ui.clone(),
+            );
+            ui_state.add_client(node_id, client_state);
+        }
+    }
+
+    ui_state
+}
+

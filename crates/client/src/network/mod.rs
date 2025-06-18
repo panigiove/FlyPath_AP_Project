@@ -316,7 +316,7 @@ impl NetworkState {
 
     fn _reconstruct_path(
         &self,
-        distances: &hashbrown::HashMap<NodeIndex, Weight>,
+        distances: &HashMap<NodeIndex, Weight>,
         target_idx: NodeIndex,
     ) -> Option<Vec<NodeId>> {
         let mut path = Vec::new();
