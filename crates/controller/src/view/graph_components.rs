@@ -1,10 +1,9 @@
-use egui::{Pos2, Vec2, ColorImage, TextureHandle, TextureId, Shape, Rect, Stroke};
-use egui_graphs::{Graph, GraphView, Node, Edge, NodeProps, EdgeProps, SettingsInteraction, SettingsNavigation, DefaultNodeShape, DefaultEdgeShape, DisplayNode, DrawContext, DisplayEdge};
+use egui::{Pos2, Vec2, TextureId, Color32};
+use eframe::epaint::{Rect, Stroke, Rounding, Shape};
+use egui_graphs::{Graph, Node, NodeProps, EdgeProps, DefaultNodeShape, DefaultEdgeShape, DisplayNode, DrawContext, DisplayEdge};
 use wg_2024::network::NodeId;
 use crate::utility::NodeType;
-use eframe::{egui, emath};
-use eframe::epaint;
-use eframe::epaint::Color32;
+use eframe::egui;
 
 use petgraph::{EdgeType, stable_graph::IndexType, Undirected};
 
@@ -57,16 +56,16 @@ impl CustomNode {
         if selected {
             // Colori più vivaci quando selezionato
             match self.node_type {
-                NodeType::Drone => Color32::from_rgb(150, 200, 255),   // Blu più chiaro
-                NodeType::Server => Color32::from_rgb(100, 255, 100),  // Verde più chiaro  
-                NodeType::Client => Color32::from_rgb(255, 150, 150),  // Rosso più chiaro
+                NodeType::Client => Color32::from_rgb(14, 137, 145),
+                NodeType::Drone => Color32::from_rgb(14, 137, 145),
+                NodeType::Server => Color32::from_rgb(14, 137, 145),
             }
         } else {
             // Colori normali
             match self.node_type {
-                NodeType::Drone => Color32::from_rgb(100, 149, 237),  // Cornflower blue
-                NodeType::Server => Color32::from_rgb(34, 139, 34),   // Forest green
-                NodeType::Client => Color32::from_rgb(255, 69, 0),    // Orange red
+                NodeType::Client => Color32::from_rgb(141, 182, 188),
+                NodeType::Drone => Color32::from_rgb(141, 182, 188),
+                NodeType::Server => Color32::from_rgb(141, 182, 188),
             }
         }
     }
@@ -98,9 +97,9 @@ impl From<NodeProps<(NodeId, NodeType)>> for CustomNode {
             NodeType::Server => "Server #".to_string(),
         };
         let mut image_path = match node_props.payload.1 {
-            NodeType::Client => "assets/client.png".to_string(),
-            NodeType::Drone => "assets/drone.png".to_string(),
-            NodeType::Server => "assets/server.png".to_string(),
+            NodeType::Client => "crates/controller/src/view/assets/client.png".to_string(),
+            NodeType::Drone => "crates/controller/src/view/assets/drone.png".to_string(),
+            NodeType::Server => "crates/controller/src/view/assets/server.png".to_string(),
         };
 
         label.push_str(&node_props.payload.0.to_string());
@@ -122,7 +121,7 @@ impl From<NodeProps<(NodeId, NodeType)>> for CustomNode {
 }
 
 impl <E: Clone> DisplayNode <NodePayload, E, Undirected, u32> for CustomNode{
-    fn closest_boundary_point(&self, dir: emath::Vec2) -> emath::Pos2 {
+    fn closest_boundary_point(&self, dir: Vec2) -> Pos2 {
         let half_size = self.size / 2.0;
         let center = self.position;
 
@@ -150,16 +149,16 @@ impl <E: Clone> DisplayNode <NodePayload, E, Undirected, u32> for CustomNode{
         let t = t_x.min(t_y);
 
         let offset = dir_normalized * t;
-        emath::Pos2::new(center.x + offset.x, center.y + offset.y)
+        Pos2::new(center.x + offset.x, center.y + offset.y)
     }
 
-    fn shapes(&mut self, ctx: &DrawContext) -> Vec<epaint::Shape> {
+    fn shapes(&mut self, ctx: &DrawContext) -> Vec<Shape> {
         let mut shapes = Vec::new();
 
         // Calculate rectangle for texture
         let half_size = Vec2::new(self.size.x / 2.0, self.size.y / 2.0);
-        let min_pos = emath::Pos2::new(self.position.x - half_size.x, self.position.y - half_size.y);
-        let max_pos = emath::Pos2::new(self.position.x + half_size.x, self.position.y + half_size.y);
+        let min_pos = Pos2::new(self.position.x - half_size.x, self.position.y - half_size.y);
+        let max_pos = Pos2::new(self.position.x + half_size.x, self.position.y + half_size.y);
         let rect = Rect::from_min_max(min_pos, max_pos);
 
         // MODIFICATO: Usa lo stato di selezione interno
@@ -168,8 +167,8 @@ impl <E: Clone> DisplayNode <NodePayload, E, Undirected, u32> for CustomNode{
         // Se è selezionato, aggiungi un'aureola
         if is_selected {
             let expanded_rect = Rect::from_min_max(
-                emath::Pos2::new(min_pos.x - 3.0, min_pos.y - 3.0),
-                emath::Pos2::new(max_pos.x + 3.0, max_pos.y + 3.0)
+                Pos2::new(min_pos.x - 3.0, min_pos.y - 3.0),
+                Pos2::new(max_pos.x + 3.0, max_pos.y + 3.0)
             );
             let halo_shape = Shape::rect_filled(expanded_rect, 8.0, Color32::from_rgba_unmultiplied(255, 255, 0, 128));
             shapes.push(halo_shape);
@@ -181,7 +180,7 @@ impl <E: Clone> DisplayNode <NodePayload, E, Undirected, u32> for CustomNode{
             let texture_shape = Shape::image(
                 epaint_texture_id,
                 rect,
-                Rect::from_min_max(emath::Pos2::new(0.0, 0.0), emath::Pos2::new(1.0, 1.0)), // UV coordinates
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                 Color32::WHITE
             );
             shapes.push(texture_shape);
@@ -273,9 +272,9 @@ impl CustomEdge {
     // NUOVO: Metodo per ottenere il colore dell'edge
     fn get_edge_color(&self, selected: bool) -> Color32 {
         if selected {
-            Color32::from_rgb(255, 255, 0) // Giallo quando selezionato
+            Color32::from_rgb(234, 162, 124)
         } else {
-            Color32::GRAY // Grigio normale
+            Color32::from_rgb(232, 187, 166)
         }
     }
 
@@ -299,13 +298,13 @@ impl<E: Clone> From<EdgeProps<E>> for CustomEdge {
 }
 
 impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, E, Ty, Ix>> DisplayEdge<N, E, Ty, Ix, D> for CustomEdge{
-    fn shapes(&mut self, start: &Node<N, E, Ty, Ix, D>, end: &Node<N, E, Ty, Ix, D>, ctx: &DrawContext) -> Vec<egui::Shape> {
+    fn shapes(&mut self, start: &Node<N, E, Ty, Ix, D>, end: &Node<N, E, Ty, Ix, D>, ctx: &DrawContext) -> Vec<Shape> {
         let start_display = start.display();
         let end_display = end.display();
 
         // Uso emath::Vec2 e emath::Pos2 per closest_boundary_point
-        let start_center_emath = start_display.closest_boundary_point(emath::Vec2::new(0.0, 0.0));
-        let end_center_emath = end_display.closest_boundary_point(emath::Vec2::new(0.0, 0.0));
+        let start_center_emath = start_display.closest_boundary_point(Vec2::new(0.0, 0.0));
+        let end_center_emath = end_display.closest_boundary_point(Vec2::new(0.0, 0.0));
 
         // Converto in egui::Pos2 per usarli in Shape
         let start_center = egui::Pos2::new(start_center_emath.x, start_center_emath.y);
@@ -315,8 +314,8 @@ impl<N: Clone, E: Clone, Ty: EdgeType, Ix: IndexType, D: DisplayNode<N, E, Ty, I
         let end_to_start = egui::Vec2::new(start_center.x - end_center.x, start_center.y - end_center.y);
 
         // Ottengo punti di bordo sempre in emath, poi converto in egui
-        let start_pos_emath = start_display.closest_boundary_point(emath::Vec2::new(start_to_end.x, start_to_end.y));
-        let end_pos_emath = end_display.closest_boundary_point(emath::Vec2::new(end_to_start.x, end_to_start.y));
+        let start_pos_emath = start_display.closest_boundary_point(Vec2::new(start_to_end.x, start_to_end.y));
+        let end_pos_emath = end_display.closest_boundary_point(Vec2::new(end_to_start.x, end_to_start.y));
 
         let start_pos = egui::Pos2::new(start_pos_emath.x, start_pos_emath.y);
         let end_pos = egui::Pos2::new(end_pos_emath.x, end_pos_emath.y);
@@ -471,10 +470,11 @@ pub fn update_node_selection_in_graph<E: Clone, Ty: EdgeType, Ix: IndexType>(
     graph: &mut Graph<CustomNode, E, Ty, Ix>,
     selection_state: &GraphSelectionState
 ) {
-    for node in graph.nodes_mut() {
-        let node_display = node.display_mut();
-        let is_selected = selection_state.is_node_selected(node_display.id);
-        node_display.set_selected(is_selected);
+    let node_indices: Vec<_> = graph.g.node_indices().collect();
+    for node_idx in node_indices {
+        if let Some(node) = graph.node_mut(node_idx) {
+            // ... your code that works with the mutable node
+        }
     }
 }
 
@@ -485,20 +485,23 @@ pub fn update_edge_selection_in_graph<N: Clone, E: Clone, Ty: EdgeType, Ix: Inde
 ) where
     D: DisplayNode<N, E, Ty, Ix>,
 {
-    for edge in graph.edges_mut() {
-        // Ottieni gli ID dei nodi collegati dall'edge
-        // Nota: Questo dipende dall'API di egui_graphs per ottenere i nodi source e target
-        // Potrebbe essere necessario adattare in base alla struttura esatta di Edge
+    let edge_indices: Vec<_> = graph.g.edge_indices().collect();
+    for edge_idx in edge_indices {
+        if let Some(edge) = graph.edge_mut(edge_idx) {
+            // Ottieni gli ID dei nodi collegati dall'edge
+            // Nota: Questo dipende dall'API di egui_graphs per ottenere i nodi source e target
+            // Potrebbe essere necessario adattare in base alla struttura esatta di Edge
 
-        // Esempio di implementazione (da adattare):
-        // let source_id = edge.source().display().id;
-        // let target_id = edge.target().display().id;
-        // let is_selected = selection_state.is_edge_selected((source_id, target_id));
-        // edge.display_mut().set_selected(is_selected);
+            // Esempio di implementazione (da adattare):
+            // let source_id = edge.source().display().id;
+            // let target_id = edge.target().display().id;
+            // let is_selected = selection_state.is_edge_selected((source_id, target_id));
+            // edge.display_mut().set_selected(is_selected);
 
-        // Per ora, implementazione semplificata:
-        let edge_display = edge.display_mut();
-        // edge_display.set_selected(false); // Da implementare correttamente
+            // Per ora, implementazione semplificata:
+            let edge_display = edge.display_mut();
+            // edge_display.set_selected(false); // Da implementare correttamente
+        }
     }
 }
 
@@ -529,7 +532,7 @@ mod tests {
         let node = CustomNode::new(
             1,
             NodeType::Drone,
-            "assets/drone.png".to_string(),
+            "crates/controller/src/view/assets/drone.png".to_string(),
             Pos2::new(50.0, 50.0),
             Vec2::new(40.0, 40.0),
             create_mock_texture_id()
@@ -537,7 +540,7 @@ mod tests {
 
         assert_eq!(node.id, 1);
         assert_eq!(node.node_type, NodeType::Drone);
-        assert_eq!(node.image_path, "assets/drone.png");
+        assert_eq!(node.image_path, "crates/controller/src/view/assets/drone.png");
         assert_eq!(node.position, Pos2::new(50.0, 50.0));
         assert_eq!(node.label, "Drone 1");
         assert_eq!(node.size, Vec2::new(40.0, 40.0));
@@ -783,7 +786,7 @@ mod tests {
         // Node at (100, 100) with size (50, 50)
 
         // Test horizontal direction
-        let point_right = test_node_closest_boundary_point(&node, emath::Vec2::new(1.0, 0.0));
+        let point_right = test_node_closest_boundary_point(&node, Vec2::new(1.0, 0.0));
         assert_eq!(point_right, emath::Pos2::new(125.0, 100.0));
 
         let point_left = test_node_closest_boundary_point(&node, emath::Vec2::new(-1.0, 0.0));

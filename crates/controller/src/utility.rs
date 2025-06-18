@@ -52,7 +52,9 @@ pub enum ButtonEvent{
 
 pub enum ButtonsMessages{
     DeselectNode(NodeId), //dopo che abbiamo fatto un'operazione deselezioniamo il nodo
-    MultipleSelectionAllowed //per quando diciamo di voler aggiungere un edge
+    MultipleSelectionAllowed, //per quando diciamo di voler aggiungere un edge
+    UpdateSelection(Option<NodeId>, Option<NodeId>), // NUOVO: per sincronizzare la selezione
+    ClearAllSelections, // NUOVO: per pulire tutte le selezioni
 }
 
 pub enum MessageType{
@@ -64,7 +66,7 @@ pub enum MessageType{
     //TODO vedere se aggiungere un tipo di messaggi per il drone
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DroneGroup{
     RustInPeace,
     BagelBomber,
