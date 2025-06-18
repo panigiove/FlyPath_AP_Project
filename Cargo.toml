@@ -14,7 +14,6 @@ controller = { path = "crates/controller" }
 client = { path = "crates/client" }
 server = { path = "crates/server" }
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
-
 [workspace]
 members = [
     "crates/controller",
