@@ -13,10 +13,10 @@ dependencies = [
 [[package]]
 name = "LeDron_James"
 version = "0.1.0"
-source = "git+https://github.com/anass03/LeDron_James.git#3b45a7141690260d72ae4e6ddd75761e44926ccd"
+source = "git+https://github.com/anass03/LeDron_James.git#a9c5fae9556fba0d227993c29449cea895c5f955"
 dependencies = [
  "crossbeam-channel",
- "rand 0.9.0",
+ "rand 0.9.1",
  "serde",
  "serde_json",
  "wg_2024",
@@ -40,13 +40,9 @@ checksum = "c71b1793ee61086797f5c80b6efa2b8ffa6d5dd703f118545808a7f2e27f7046"
 
 [[package]]
 name = "accesskit"
-version = "0.17.1"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3d3b8f9bae46a948369bc4a03e815d4ed6d616bd00de4051133a5019dc31c5a"
-dependencies = [
- "enumn",
- "serde",
-]
+checksum = "99b76d84ee70e30a4a7e39ab9018e2b17a6a09e31084176cc7c0b2dec036ba45"
 
 [[package]]
 name = "accesskit"
@@ -56,9 +52,9 @@ checksum = "d3d3b8f9bae46a948369bc4a03e815d4ed6d616bd00de4051133a5019dc31c5a"
 
 [[package]]
 name = "accesskit_atspi_common"
-version = "0.10.1"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c5dd55e6e94949498698daf4d48fb5659e824d7abec0d394089656ceaf99d4f"
+checksum = "f5393c75d4666f580f4cac0a968bc97c36076bb536a129f28210dac54ee127ed"
 dependencies = [
  "accesskit 0.16.3",
  "accesskit_consumer 0.24.3",
@@ -84,20 +80,30 @@ dependencies = [
 
 [[package]]
 name = "accesskit_consumer"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a12dc159d52233c43d9fe5415969433cbdd52c3d6e0df51bda7d447427b9986"
+dependencies = [
+ "accesskit 0.16.3",
+ "immutable-chunkmap",
+]
+
+[[package]]
+name = "accesskit_consumer"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f47983a1084940ba9a39c077a8c63e55c619388be5476ac04c804cfbd1e63459"
 dependencies = [
- "accesskit",
+ "accesskit 0.17.1",
  "hashbrown",
  "immutable-chunkmap",
 ]
 
 [[package]]
 name = "accesskit_macos"
-version = "0.18.1"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7329821f3bd1101e03a7d2e03bd339e3ac0dc64c70b4c9f9ae1949e3ba8dece1"
+checksum = "bfc6c1ecd82053d127961ad80a8beaa6004fb851a3a5b96506d7a6bd462403f6"
 dependencies = [
  "accesskit 0.16.3",
  "accesskit_consumer 0.24.3",
@@ -123,9 +129,9 @@ dependencies = [
 
 [[package]]
 name = "accesskit_unix"
-version = "0.13.1"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcee751cc20d88678c33edaf9c07e8b693cd02819fe89053776f5313492273f5"
+checksum = "be7f5cf6165be10a54b2655fa2e0e12b2509f38ed6fc43e11c31fdb7ee6230bb"
 dependencies = [
  "accesskit 0.16.3",
  "accesskit_atspi_common 0.9.3",
@@ -159,12 +165,26 @@ dependencies = [
 
 [[package]]
 name = "accesskit_windows"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "974e96c347384d9133427167fb8a58c340cb0496988dacceebdc1ed27071023b"
+dependencies = [
+ "accesskit 0.16.3",
+ "accesskit_consumer 0.24.3",
+ "paste",
+ "static_assertions",
+ "windows 0.58.0",
+ "windows-core 0.58.0",
+]
+
+[[package]]
+name = "accesskit_windows"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24fcd5d23d70670992b823e735e859374d694a3d12bfd8dd32bd3bd8bedb5d81"
 dependencies = [
- "accesskit",
- "accesskit_consumer",
+ "accesskit 0.17.1",
+ "accesskit_consumer 0.26.0",
  "hashbrown",
  "paste",
  "static_assertions",
@@ -174,14 +194,28 @@ dependencies = [
 
 [[package]]
 name = "accesskit_winit"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aea3522719f1c44564d03e9469a8e2f3a98b3a8a880bd66d0789c6b9c4a669dd"
+dependencies = [
+ "accesskit 0.16.3",
+ "accesskit_macos 0.17.4",
+ "accesskit_unix 0.12.3",
+ "accesskit_windows 0.23.2",
+ "raw-window-handle",
+ "winit",
+]
+
+[[package]]
+name = "accesskit_winit"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a6a48dad5530b6deb9fc7a52cc6c3bf72cdd9eb8157ac9d32d69f2427a5e879"
 dependencies = [
- "accesskit",
- "accesskit_macos",
- "accesskit_unix",
- "accesskit_windows",
+ "accesskit 0.17.1",
+ "accesskit_macos 0.18.1",
+ "accesskit_unix 0.13.1",
+ "accesskit_windows 0.24.1",
  "raw-window-handle",
  "winit",
 ]
@@ -201,7 +235,6 @@ dependencies = [
  "cfg-if",
  "getrandom 0.3.3",
  "once_cell",
- "serde",
  "version_check",
  "zerocopy",
 ]
@@ -305,8 +338,6 @@ dependencies = [
  "anstyle",
  "once_cell_polyfill",
  "windows-sys 0.59.0",
- "once_cell",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -335,7 +366,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1df21f715862ede32a0c525ce2ca4d52626bb0007f8c18b87a384503ac33e70"
 dependencies = [
  "clipboard-win",
- "core-graphics",
  "image 0.25.6",
  "log",
  "objc2 0.6.1",
@@ -595,14 +625,14 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.5.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "bagel_bomber"
 version = "0.1.0"
-source = "git+https://github.com/daw-dev/bagel-bomber.git#e2075058eacd3fe2846e90e9d11369f4f5b214f5"
+source = "git+https://github.com/daw-dev/bagel-bomber.git#222ab4f0505c3f590cb947ee937994021c96d637"
 dependencies = [
  "crossbeam-channel",
  "lazy_static",
@@ -613,10 +643,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "base64"
-version = "0.21.7"
+name = "bit-set"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+checksum = "f0481a0e032742109b1133a095184ee93d88f3dc9e0d28a5d033dc77a073f44f"
+dependencies = [
+ "bit-vec 0.7.0",
+]
 
 [[package]]
 name = "bit-set"
@@ -626,6 +659,12 @@ checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
 dependencies = [
  "bit-vec 0.8.0",
 ]
+
+[[package]]
+name = "bit-vec"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2c54ff287cfc0a34f38a6b832ea1bd8e448a330b3e40a50859e6488bee07f22"
 
 [[package]]
 name = "bit-vec"
@@ -647,7 +686,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.9.0"
+version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 dependencies = [
@@ -1029,19 +1068,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,15 +1091,6 @@ name = "crossbeam-epoch"
 version = "0.9.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f58bbc28f91df819d0aa2a2c00cd19754769c2fad90579b3592b1c9ba7a3115"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1223,7 +1240,6 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "parking_lot",
  "percent-encoding",
- "profiling",
  "raw-window-handle",
  "static_assertions",
  "wasm-bindgen",
@@ -1283,9 +1299,6 @@ dependencies = [
  "epaint 0.29.1",
  "log",
  "nohash-hasher",
- "profiling",
- "ron",
- "serde",
 ]
 
 [[package]]
@@ -1302,8 +1315,6 @@ dependencies = [
  "log",
  "nohash-hasher",
  "profiling",
- "ron",
- "serde",
 ]
 
 [[package]]
@@ -1318,11 +1329,30 @@ dependencies = [
  "egui 0.29.1",
  "epaint 0.29.1",
  "log",
+ "thiserror 1.0.69",
+ "type-map",
+ "web-time",
+ "wgpu 22.1.0",
+ "winit",
+]
+
+[[package]]
+name = "egui-wgpu"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d319dfef570f699b6e9114e235e862a2ddcf75f0d1a061de9e1328d92146d820"
+dependencies = [
+ "ahash",
+ "bytemuck",
+ "document-features",
+ "egui 0.31.1",
+ "epaint 0.31.1",
+ "log",
  "profiling",
  "thiserror 1.0.69",
  "type-map",
  "web-time",
- "wgpu",
+ "wgpu 24.0.5",
  "winit",
 ]
 
@@ -1336,6 +1366,25 @@ dependencies = [
  "ahash",
  "arboard",
  "egui 0.29.1",
+ "log",
+ "raw-window-handle",
+ "smithay-clipboard",
+ "web-time",
+ "webbrowser",
+ "winit",
+]
+
+[[package]]
+name = "egui-winit"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d9dfbb78fe4eb9c3a39ad528b90ee5915c252e77bbab9d4ebc576541ab67e13"
+dependencies = [
+ "accesskit_winit 0.23.1",
+ "ahash",
+ "arboard",
+ "bytemuck",
+ "egui 0.31.1",
  "log",
  "profiling",
  "raw-window-handle",
@@ -1371,7 +1420,6 @@ dependencies = [
  "glow 0.14.2",
  "log",
  "memoffset",
- "profiling",
  "wasm-bindgen",
  "web-sys",
  "winit",
@@ -1404,8 +1452,6 @@ dependencies = [
  "egui 0.29.1",
  "petgraph 0.6.5",
  "rand 0.8.5",
- "serde",
-    "crossbeam",
 ]
 
 [[package]]
@@ -1430,7 +1476,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
 dependencies = [
  "bytemuck",
- "serde",
 ]
 
 [[package]]
@@ -1500,7 +1545,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "env_filter",
- "humantime",
+ "jiff",
  "log",
 ]
 
@@ -1519,8 +1564,6 @@ dependencies = [
  "log",
  "nohash-hasher",
  "parking_lot",
- "profiling",
- "serde",
 ]
 
 [[package]]
@@ -1539,7 +1582,6 @@ dependencies = [
  "nohash-hasher",
  "parking_lot",
  "profiling",
- "serde",
 ]
 
 [[package]]
@@ -1813,7 +1855,7 @@ checksum = "335ff9f135e4384c8150d6f27c6daed433577f86b4750418338c01a1a2528592"
 dependencies = [
  "cfg-if",
  "libc",
- "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasi 0.11.1+wasi-snapshot-preview1",
 ]
 
 [[package]]
@@ -1866,6 +1908,18 @@ name = "glow"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d51fa363f025f5c111e03f13eda21162faeacb6911fe8caa0c0349f9cf0c4483"
+dependencies = [
+ "js-sys",
+ "slotmap",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "glow"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5e5ea60d70410161c8bf5da3fdfeaa1c72ed2c15f8bbb9d19fe3a4fad085f08"
 dependencies = [
  "js-sys",
  "slotmap",
@@ -2052,15 +2106,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
-name = "home"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
-dependencies = [
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "http"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2082,12 +2127,6 @@ name = "httpdate"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
-
-[[package]]
-name = "humantime"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "icu_collections"
@@ -2127,9 +2166,6 @@ dependencies = [
  "icu_properties",
  "icu_provider",
  "smallvec",
- "utf16_iter",
- "utf8_iter",
- "write16",
  "zerovec",
 ]
 
@@ -2176,17 +2212,6 @@ dependencies = [
  "zerofrom",
  "zerotrie",
  "zerovec",
-]
-
-[[package]]
-name = "icu_provider_macros"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ec89e9337638ecdc08744df490b221a7399bf8d164eb52a665454e60e075ad6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -3407,7 +3432,6 @@ checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
- "zerocopy 0.8.21",
 ]
 
 [[package]]
@@ -3584,7 +3608,7 @@ version = "0.1.0"
 source = "git+https://github.com/RustDoIt/Drone.git#8545bfb5a81a3b64f776a3abccd236de7a7cd500"
 dependencies = [
  "crossbeam-channel",
- "env_logger",
+ "env_logger 0.11.8",
  "log",
  "rand 0.8.5",
  "toml",
@@ -3769,6 +3793,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serial_test"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
+dependencies = [
+ "dashmap",
+ "futures",
+ "lazy_static",
+ "log",
+ "parking_lot",
+ "serial_test_derive",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91d129178576168c589c9ec973feedf7d3126c01ac2bf08795109aa35b69fb8f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.103",
 ]
 
 [[package]]
@@ -4520,7 +4569,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaf4f3c0ba838e82b4e5ccc4157003fb8c324ee24c058470ffb82820becbde98"
 dependencies = [
  "core-foundation 0.10.1",
- "home",
  "jni",
  "log",
  "ndk-context",
@@ -4620,7 +4668,7 @@ checksum = "6b0b3436f0729f6cdf2e6e9201f3d39dc95813fad61d826c1ed07918b4539353"
 dependencies = [
  "arrayvec",
  "bitflags 2.9.1",
- "cfg_aliases",
+ "cfg_aliases 0.2.1",
  "document-features",
  "js-sys",
  "log",
@@ -4715,16 +4763,6 @@ dependencies = [
  "js-sys",
  "log",
  "web-sys",
-]
-
-[[package]]
-name = "wide"
-version = "0.7.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b5576b9a81633f3e8df296ce0063042a73507636cbe956c61133dd7034ab22"
-dependencies = [
- "bytemuck",
- "safe_arch",
 ]
 
 [[package]]

@@ -4,34 +4,31 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+eframe = "0.29"
+egui = "0.29"
+emath = "0.29"
+egui_extras = "0.29"
+epaint = "0.29"
+egui_graphs = "0.22"
+crossbeam-channel = "0.5"
+
+
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
-crossbeam-channel = "0.5.13"
 rand = "0.8"
-
-egui_graphs = "0.22.0"
-egui = "0.31"
-egui_extras = "0.31.1"
-eframe = "0.29.1"
 petgraph = "0.6"
-image = "0.24"
 
-fdg = { git = "https://github.com/grantshandy/fdg" }
 
 lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
 rustbusters-drone = {git = "https://github.com/Rustbusters/drone.git" }
 rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
 ap2024_rustinpeace_nosounddrone = { git = "https://github.com/Rust-In-Peace-AP/No-Sound-Drone.git" }
-
-# bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git" }
 bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false }
-# bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false, features = ["debug"] }
-
 LeDron_James = { git = "https://github.com/anass03/LeDron_James.git" }
 rolling_drone = { git = "https://github.com/giorebecchi/RollingDrone.git"}
 rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
 rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
 rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
-flyPath = { git = "https://github.com/panigiove/FlyPath.git" }
+
 server = { path = "../server"}
 client = { path = "../client"}
 
@@ -39,3 +36,13 @@ message = { path = "../message" }
 env_logger = "0.11.6"
 serde_json = "1.0.140"
 fastrand = "2.3.0"
+image = "0.24"
+
+[dev-dependencies]
+# Per i test
+serial_test = "2.0"  # Per test che devono essere eseguiti in sequenza
+
+# Se i tuoi moduli non sono pubblici, aggiungili così:
+[lib]
+name = "controller"
+path = "src/lib.rs"
