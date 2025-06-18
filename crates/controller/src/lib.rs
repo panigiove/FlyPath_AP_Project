@@ -7,7 +7,8 @@ pub mod view {
 }
 pub mod utility;
 pub mod controller_handler;
-mod controller;
+pub mod controller;
+pub use controller::run_controller;
 
 // Re-export
 pub use view::graph::GraphApp;

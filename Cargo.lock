@@ -3777,6 +3777,7 @@ dependencies = [
  "crossbeam-channel",
  "log",
  "message",
+ "serde_json",
  "wg_2024",
 ]
 
