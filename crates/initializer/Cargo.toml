@@ -13,3 +13,14 @@ server = {path = "../server"}
 message = {path = "../message"}
 client = {path = "../client"}
 controller = {path = "../controller"}
+
+lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
+rustbusters-drone = {git = "https://github.com/Rustbusters/drone.git" }
+rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
+ap2024_rustinpeace_nosounddrone = { git = "https://github.com/Rust-In-Peace-AP/No-Sound-Drone.git" }
+bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false }
+LeDron_James = { git = "https://github.com/anass03/LeDron_James.git" }
+rolling_drone = { git = "https://github.com/giorebecchi/RollingDrone.git"}
+rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
+rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
+rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }

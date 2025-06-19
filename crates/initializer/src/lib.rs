@@ -1,3 +1,4 @@
+use wg_2024::wg_drone::Drone;
 use client::comunication::{FromUiCommunication, ToUICommunication};
 use client::worker::Worker;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -12,6 +13,18 @@ use wg_2024::config::{Config, Drone};
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
+
+use ap2024_rustinpeace_nosounddrone::NoSoundDroneRIP;
+use bagel_bomber::BagelBomber;
+use lockheedrustin_drone::LockheedRustin;
+use rolling_drone::RollingDrone;
+use rust_do_it::RustDoIt;
+use rust_roveri::RustRoveri;
+use rustastic_drone::RustasticDrone;
+use rustbusters_drone::RustBustersDrone;
+use LeDron_James::Drone as LeDronJames_drone;
+use rusty_drones::RustyDrone;
+use controller::DroneGroup;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -114,26 +127,173 @@ pub fn start() -> Result<(
 
     let mut thread_handles = Vec::new();
 
+    //let mut drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>> = HashMap::new();
+    let mut drones_types: HashMap<NodeId, DroneGroup> = HashMap::new();
+    let mut drones_counter: HashMap<DroneGroup, i8> = HashMap::new();
+
+    let mut index = 0;
+
     // Start drone threads
     for node in cfg.drone.iter() {
-        let receiver_drone_event = sender_receiver_pair_drone_event.get(&node.id)
+        let seder_drone_event = sender_receiver_pair_drone_event.get(&node.id)
             .ok_or(format!("Drone event receiver not found for node {}", node.id))?
-            .1.clone();
+            .0.clone();
         let receiver_drone_command = sender_receiver_drone_command.get(&node.id)
             .ok_or(format!("Drone command receiver not found for node {}", node.id))?
             .1.clone();
-        let sender_packet = sender_receiver_packet.get(&node.id)
+        let receiver_packet = sender_receiver_packet.get(&node.id)
             .ok_or(format!("Packet sender not found for node {}", node.id))?
-            .0.clone();
+            .1.clone();
+        
+        let mut sender_packet: HashMap<NodeId, Sender<Packet>> = HashMap::new();
 
         let node_id = node.id;
-        // TODO: choose which instance of drone create here
-        // let drone = Drone::new(node_id, receiver_drone_event, receiver_drone_command, sender_packet);
-        let handle = thread::spawn(move || {
-            // TODO: run instance of drone
-            // drone.run();
-        });
-        thread_handles.push(handle);
+        for id in node.connected_node_ids{
+            let _ = sender_packet.insert(id, sender_receiver_packet.get(&node.id).ok_or(format!("Packet sender not found for node {}", node.id))?.0.clone());
+        }
+
+        let drone: Option<Box <dyn wg_2024::drone::Drone>> = match index {
+            0 => {
+                drones_types.insert(node_id, DroneGroup::RustInPeace);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::RustInPeace).or_insert(0) += 1;
+                Some(Box::new(NoSoundDroneRIP::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            1 => {
+                drones_types.insert(node_id, DroneGroup::BagelBomber);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::BagelBomber).or_insert(0) += 1;
+                Some(Box::new(BagelBomber::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            2 => {
+                drones_types.insert(node_id, DroneGroup::LockheedRustin);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::LockheedRustin).or_insert(0) += 1;
+                Some(Box::new(LockheedRustin::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            3 => {
+                drones_types.insert(node_id, DroneGroup::RollingDrone);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::RollingDrone).or_insert(0) += 1;
+                Some(Box::new(RollingDrone::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            4 => {
+                drones_types.insert(node_id, DroneGroup::RustDoIt);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::RustDoIt).or_insert(0) += 1;
+                Some(Box::new(RustDoIt::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            5 => {
+                drones_types.insert(node_id, DroneGroup::RustRoveri);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::RustRoveri).or_insert(0) += 1;
+                Some(Box::new(RustRoveri::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            6 => {
+                drones_types.insert(node_id, DroneGroup::Rustastic);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::Rustastic).or_insert(0) += 1;
+                Some(Box::new(RustasticDrone::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            7 => {
+                drones_types.insert(node_id, DroneGroup::RustBusters);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::RustBusters).or_insert(0) += 1;
+                Some(Box::new(RustBustersDrone::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            8 => {
+                drones_types.insert(node_id, DroneGroup::LeDronJames);
+                index = index + 1;
+                *drones_counter.entry(DroneGroup::LeDronJames).or_insert(0) += 1;
+                Some(Box::new(LeDronJames_drone::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            }
+            9 => {
+                drones_types.insert(node_id, DroneGroup::RustyDrones);
+                index = 0;
+                *drones_counter.entry(DroneGroup::RustyDrones).or_insert(0) += 1;
+                Some(Box::new(RustyDrone::new(
+                    node_id,
+                    seder_drone_event,
+                    receiver_drone_command,
+                    receiver_packet,
+                    sender_packet,
+                    node.pdr,
+                )))
+            },
+            _ => {None}
+        };
+        
+        if let Some(drone) = drone {
+            let handle = thread::spawn(move || {
+                drone.run();
+            });
+            thread_handles.push(handle);
+        } else {
+            eprintln!("Drone not created for index {}", index);
+        }
     }
 
     // Start client threads
