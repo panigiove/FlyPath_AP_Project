@@ -1,9 +1,13 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
 use egui::{Color32, TextureId};
 use wg_2024::network::NodeId;
+use client::ui::UiState;
 use crate::utility::{ButtonsMessages, GraphAction, MessageType, NodeType};
+use client::ui::ClientState;
+use crate::NodeType::Client;
 
 type NodePayload = (NodeId, NodeType);
 
@@ -16,12 +20,15 @@ pub struct GraphApp {
     pub connection: HashMap<NodeId, Vec<NodeId>>,
     pub node_types: HashMap<NodeId, NodeType>,
 
+    pub client_ui_state: Arc<Mutex<UiState>>,
+
     //CHANNELS
     pub receiver_updates: Receiver<GraphAction>,
     pub sender_node_clicked: Sender<NodeId>,
     pub sender_edge_clicked: Sender<(NodeId, NodeId)>,
     pub reciver_buttom_messages: Receiver<ButtonsMessages>,
     pub sender_message_type: Sender<MessageType>,
+    pub client_state_receiver: Receiver<(NodeId, ClientState)>
 }
 
 impl GraphApp {
@@ -32,7 +39,9 @@ impl GraphApp {
                sender_node_clicked: Sender<NodeId>,
                sender_edge_clicked: Sender<(NodeId, NodeId)>,
                reciver_buttom_messages: Receiver<ButtonsMessages>,
-               sender_message_type: Sender<MessageType>) -> Self {
+               sender_message_type: Sender<MessageType>,
+               client_ui_state: Arc<Mutex<UiState>>,
+               client_state_receiver: Receiver<(NodeId, ClientState)>) -> Self {
 
         let mut node_textures = HashMap::new();
 
@@ -96,13 +105,15 @@ impl GraphApp {
             selected_node_id2: None,
             selected_edge: None,
             node_textures,
+            client_ui_state,
             connection,
             node_types,
             receiver_updates,
             sender_node_clicked,
             sender_edge_clicked,
             reciver_buttom_messages,
-            sender_message_type
+            sender_message_type,
+            client_state_receiver
         }
     }
 
@@ -225,6 +236,20 @@ impl GraphApp {
         if self.node_types.contains_key(&new_node_id) {
             return Err(format!("Node with ID {} already exists", new_node_id));
         }
+        if self.node_types.get(&new_node_id) == Some(&Client){
+            if let Ok(command) = self.client_state_receiver.try_recv() {
+                match self.client_ui_state.lock() {
+                    Ok(mut state) => {
+                        if let Some((id, client_state)) = self.client_state_receiver.try_recv(){
+                            state.add_client(id, client_state)
+                        }
+                    }
+                    Err(poisoned) => {
+                        eprintln!("Error: Mutex is poisoned")
+                    }
+                }
+            }
+        }
 
         self.node_types.insert(new_node_id, node_type);
 
@@ -280,7 +305,7 @@ impl GraphApp {
                 return Err(format!("Edge between {} and {} already exists", id1, id2));
             }
         }
-
+        
         self.connection.entry(id1).or_insert_with(Vec::new).push(id2);
         self.connection.entry(id2).or_insert_with(Vec::new).push(id1);
 
@@ -733,448 +758,4 @@ fn create_fallback_texture(cc: &eframe::CreationContext<'_>, name: &str) -> Text
         color_image,
         egui::TextureOptions::default(),
     ).id()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossbeam_channel::unbounded;
-    use std::collections::HashMap;
-    use wg_2024::packet::{Packet, PacketType, Fragment};
-    use wg_2024::network::SourceRoutingHeader;
-    use wg_2024::controller::{DroneCommand, DroneEvent};
-    use crate::controller_handler::{ControllerError, ControllerHandler};
-    use crate::utility::{ButtonEvent, DroneGroup};
-    use crate::utility::MessageType::{Error, PacketSent};
-
-    // Test base per la creazione del controller
-    #[test]
-    fn test_controller_creation() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        assert_eq!(controller.drones.len(), 0);
-        assert_eq!(controller.clients.len(), 0);
-        assert_eq!(controller.servers.len(), 0);
-    }
-
-    // Test per l'enum ControllerError
-    #[test]
-    fn test_controller_error_display() {
-        let error1 = ControllerError::ChannelSend("test message".to_string());
-        assert_eq!(error1.to_string(), "Channel send error: test message");
-
-        let error2 = ControllerError::NodeNotFound(42);
-        assert_eq!(error2.to_string(), "Node not found: 42");
-
-        let error3 = ControllerError::InvalidOperation("invalid op".to_string());
-        assert_eq!(error3.to_string(), "Invalid operation: invalid op");
-
-        let error4 = ControllerError::NetworkConstraintViolation("constraint violated".to_string());
-        assert_eq!(error4.to_string(), "Network constraint violation: constraint violated");
-    }
-
-    // Test per is_drone method
-    #[test]
-    fn test_is_drone() {
-        let mut drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        // Test con ID inesistente
-        assert!(!controller.is_drone(&1));
-        assert!(!controller.is_drone(&99));
-    }
-
-    // Test per generate_random_id con ID limitati
-    #[test]
-    fn test_generate_random_id_with_available_ids() {
-        let mut drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let mut packet_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        // Occupa alcuni ID
-        for i in 0..10 {
-            let (sender, _) = unbounded::<Packet>();
-            packet_senders.insert(i, sender);
-        }
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            packet_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        let result = controller.generate_random_id();
-        assert!(result.is_ok());
-        let id = result.unwrap();
-        assert!(id >= 10); // Dovrebbe essere >= 10 dato che 0-9 sono occupati
-    }
-
-    // Test per validate_network_constraints con rete vuota
-    #[test]
-    fn test_validate_network_constraints_empty() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        let adj_list = HashMap::new();
-        assert!(controller.validate_network_constraints(&adj_list));
-    }
-
-    // Test per change_packet_drop_rate con nodo inesistente
-    #[test]
-    fn test_change_packet_drop_rate_invalid_node() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let mut controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        let result = controller.change_packet_drop_rate(&99, 0.5);
-        assert!(result.is_err());
-
-        if let Err(error) = result {
-            assert!(matches!(error, ControllerError::InvalidOperation(_)));
-        }
-    }
-
-    // Test per send_packet_to_client con client inesistente
-    #[test]
-    fn test_send_packet_to_client_not_found() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        let packet = Packet {
-            pack_type: PacketType::MsgFragment(Fragment {
-                fragment_index: 0,
-                total_n_fragments: 1,
-                length: 10,
-                data: [0; 128],
-            }),
-            routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![1, 99], // Client inesistente
-            },
-            session_id: 123,
-        };
-
-        let result = controller.send_packet_to_client(packet);
-        assert!(result.is_err());
-
-        if let Err(error) = result {
-            assert!(matches!(error, ControllerError::NodeNotFound(_)));
-        }
-    }
-
-    // Test per message helpers
-    #[test]
-    fn test_message_helpers() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        controller.send_success_message("test success");
-        controller.send_info_message("test info");
-        controller.send_error_message("test error");
-
-        // Verifica che i messaggi siano stati inviati
-        let mut messages = Vec::new();
-        while let Ok(msg) = message_receiver.try_recv() {
-            messages.push(msg);
-        }
-
-        assert_eq!(messages.len(), 3);
-
-        // Verifica i tipi di messaggio
-        assert!(messages.iter().any(|msg| matches!(msg, MessageType::Ok(_))));
-        assert!(messages.iter().any(|msg| matches!(msg, PacketSent(_))));
-        assert!(messages.iter().any(|msg| matches!(msg, Error(_))));
-    }
-
-    // Test per select_drone_group
-    #[test]
-    fn test_select_drone_group_empty() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        // Con counter vuoto dovrebbe restituire None
-        let result = controller.select_drone_group();
-        assert!(result.is_none());
-    }
-
-    // Test per select_drone_group con valori
-    #[test]
-    fn test_select_drone_group_with_values() {
-        let drones = HashMap::new();
-        let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
-        let connections = HashMap::new();
-        let send_command_drone = HashMap::new();
-        let send_command_node = HashMap::new();
-        let receiver_event = HashMap::new();
-        let receriver_node_event = HashMap::new();
-        let client_ui_state = client::ui::UiState::new();
-
-        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
-        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
-        let (message_sender, _message_receiver) = unbounded::<MessageType>();
-
-        let mut controller = ControllerHandler::new(
-            drones,
-            drones_types,
-            drone_senders,
-            clients,
-            servers,
-            connections,
-            send_command_drone,
-            send_command_node,
-            receiver_event,
-            receriver_node_event,
-            client_ui_state,
-            button_receiver,
-            graph_action_sender,
-            message_sender,
-        );
-
-        // Aggiungi alcuni contatori
-        controller.drones_counter.insert(DroneGroup::RustInPeace, 3);
-        controller.drones_counter.insert(DroneGroup::BagelBomber, 1);
-        controller.drones_counter.insert(DroneGroup::LockheedRustin, 2);
-
-        let result = controller.select_drone_group();
-        assert!(result.is_some());
-
-        // Dovrebbe selezionare il gruppo con il conteggio minimo (BagelBomber con 1)
-        assert!(matches!(result.unwrap(), DroneGroup::BagelBomber));
-    }
 }

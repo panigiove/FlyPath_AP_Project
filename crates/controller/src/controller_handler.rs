@@ -57,60 +57,60 @@ impl std::fmt::Display for ControllerError {
 impl std::error::Error for ControllerError {}
 
 pub struct ControllerHandler {
-    pub drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
+    // Unified node type tracking
+    pub node_types: HashMap<NodeId, NodeType>,
+
+    // Drone-specific data (only types, not instances)
     pub drones_types: HashMap<NodeId, DroneGroup>,
+
+    // Common data
     pub packet_senders: HashMap<NodeId, Sender<Packet>>,
-    pub clients: HashMap<NodeId, Worker>,
-    pub servers: HashMap<NodeId, ChatServer>,
     pub connections: HashMap<NodeId, Vec<NodeId>>,
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
     pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
     pub receiver_event: HashMap<NodeId, Receiver<DroneEvent>>,
     pub receriver_node_event: HashMap<NodeId, Receiver<NodeEvent>>,
-    pub client_ui_state: UiState,
 
     // Controller's communication channels
     pub button_receiver: Receiver<ButtonEvent>,
     pub graph_action_sender: Sender<GraphAction>,
     pub message_sender: Sender<MessageType>,
+    pub client_state_sender: Sender<(NodeId, ClientState)>,
+    
     pub drones_counter: HashMap<DroneGroup, i8>,
 }
 
 impl ControllerHandler {
     pub fn new(
-        drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>>,
+        node_types: HashMap<NodeId, NodeType>,
         drones_types: HashMap<NodeId, DroneGroup>,
-        drone_senders: HashMap<NodeId, Sender<Packet>>,
-        clients: HashMap<NodeId, Worker>,
-        servers: HashMap<NodeId, ChatServer>,
+        packet_senders: HashMap<NodeId, Sender<Packet>>,
         connections: HashMap<NodeId, Vec<NodeId>>,
         send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
         send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
         reciver_event: HashMap<NodeId, Receiver<DroneEvent>>,
         receriver_node_event: HashMap<NodeId, Receiver<NodeEvent>>,
-        client_ui_state: UiState,
         button_receiver: Receiver<ButtonEvent>,
         graph_action_sender: Sender<GraphAction>,
         message_sender: Sender<MessageType>,
+        client_state_sender: Sender<(NodeId, ClientState)>,
     ) -> Self {
         let drones_counter: HashMap<DroneGroup, i8> = HashMap::new();
 
         Self {
-            drones,
+            node_types,
             drones_types,
-            packet_senders: drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
             receiver_event: reciver_event,
             receriver_node_event,
-            client_ui_state,
             button_receiver,
             graph_action_sender,
             message_sender,
             drones_counter,
+            client_state_sender,
         }
     }
 
@@ -218,6 +218,10 @@ impl ControllerHandler {
         }
 
         self.create_drone(id, first_connection, pdr)?;
+
+        // Update node_types
+        self.node_types.insert(id, NodeType::Drone);
+
         self.send_graph_update(AddNode(id, NodeType::Drone))?;
         self.send_success_message(&format!("Drone {} created successfully", id));
 
@@ -234,8 +238,9 @@ impl ControllerHandler {
             id, sender_event, receiver_drone_command, receiver_packet, senders, pdr
         )?;
 
+        // The drone instance is now running in its own context, we don't store it
+
         // Insert all drone-related data
-        self.drones.insert(id, drone);
         self.drones_types.insert(id, drone_group);
         self.packet_senders.insert(id, sender_packet);
         self.connections.insert(id, Vec::new());
@@ -305,6 +310,10 @@ impl ControllerHandler {
         }
 
         self.remove_drone(id)?;
+
+        // Remove from node_types
+        self.node_types.remove(id);
+
         self.send_graph_update(RemoveNode(*id))?;
         self.send_success_message(&format!("Drone {} removed successfully", id));
 
@@ -322,7 +331,6 @@ impl ControllerHandler {
         self.remove_all_connections(id)?;
 
         // Clean up data structures
-        self.drones.remove(id);
         self.packet_senders.remove(id);
         self.connections.remove(id);
         self.send_command_drone.remove(id);
@@ -365,13 +373,19 @@ impl ControllerHandler {
             p_receiver, node_command_receiver, from_ui_comunication_receiver
         );
         let client_state = ClientState::new(id, ui_comunication_receiver, from_ui_comunication_send);
-
-        self.client_ui_state.add_client(id, client_state);
+        if let Err(e) = self.client_state_sender.try_send((id, client_state)){
+            return Err(ControllerError::InvalidOperation(
+                "Client can't be added to the ui".to_string()
+            ));
+        }
+        
         self.packet_senders.insert(id, p_send);
-        self.clients.insert(id, worker);
         self.connections.insert(id, vec![id_connection]);
         self.send_command_node.insert(id, node_command_send);
         self.receriver_node_event.insert(id, node_event_receiver);
+
+        // Update node_types
+        self.node_types.insert(id, NodeType::Client);
 
         self.send_graph_update(AddNode(id, Client))?;
         self.send_success_message("New client added successfully");
@@ -401,10 +415,14 @@ impl ControllerHandler {
             id, node_event_send, node_command_receiver, p_receiver, packet_send
         );
 
-        self.servers.insert(id, chat_server);
+        // The server is now running in its own context, we don't store it
+
         self.connections.insert(id, vec![id_connection]);
         self.send_command_node.insert(id, node_command_send);
         self.receriver_node_event.insert(id, node_event_receiver);
+
+        // Update node_types
+        self.node_types.insert(id, NodeType::Server);
 
         self.send_graph_update(AddNode(id, Server))?;
         self.send_success_message("New server added successfully");
@@ -529,7 +547,7 @@ impl ControllerHandler {
 
     pub(crate) fn send_packet_to_client(&self, packet: Packet) -> Result<(), ControllerError> {
         if let Some(destination) = packet.routing_header.hops.last() {
-            if self.clients.contains_key(destination) {
+            if self.is_client(destination) {
                 let sender = self.send_command_node.get(destination)
                     .ok_or_else(|| ControllerError::NodeNotFound(*destination))?;
                 sender.try_send(FromShortcut(packet))
@@ -541,19 +559,27 @@ impl ControllerHandler {
         Ok(())
     }
 
-    // ================================ Utility Methods ================================
+    // ================================ Node Type Checkers ================================
 
     pub(crate) fn is_drone(&self, id: &NodeId) -> bool {
-        self.drones.contains_key(id)
+        self.node_types.get(id) == Some(&NodeType::Drone)
     }
 
-    pub(crate) fn generate_random_id(&self) -> Result<NodeId, ControllerError> {
-        let used_ids: Vec<NodeId> = self.drones.keys()
-            .chain(self.clients.keys())
-            .chain(self.servers.keys())
-            .cloned()
-            .collect();
+    pub(crate) fn is_client(&self, id: &NodeId) -> bool {
+        self.node_types.get(id) == Some(&NodeType::Client)
+    }
 
+    pub(crate) fn is_server(&self, id: &NodeId) -> bool {
+        self.node_types.get(id) == Some(&NodeType::Server)
+    }
+
+    pub(crate) fn get_node_type(&self, id: &NodeId) -> Option<&NodeType> {
+        self.node_types.get(id)
+    }
+
+    // ================================ Utility Methods ================================
+
+    pub(crate) fn generate_random_id(&self) -> Result<NodeId, ControllerError> {
         let available_ids: Vec<NodeId> = (0..=255)
             .filter(|id| !self.packet_senders.contains_key(id))
             .collect();
@@ -620,16 +646,20 @@ impl ControllerHandler {
 
     pub(crate) fn validate_network_constraints(&self, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
         // Check client constraints (1-2 connections)
-        let clients_valid = self.clients.iter().all(|(&client, _)| {
-            adj_list.get(&client)
-                .map_or(false, |neighbors| neighbors.len() > 0 && neighbors.len() < 3)
-        });
+        let clients_valid = self.node_types.iter()
+            .filter(|(_, &node_type)| node_type == NodeType::Client)
+            .all(|(&client_id, _)| {
+                adj_list.get(&client_id)
+                    .map_or(false, |neighbors| neighbors.len() > 0 && neighbors.len() < 3)
+            });
 
         // Check server constraints (at least 2 connections)
-        let servers_valid = self.servers.iter().all(|(&server, _)| {
-            adj_list.get(&server)
-                .map_or(false, |neighbors| neighbors.len() >= 2)
-        });
+        let servers_valid = self.node_types.iter()
+            .filter(|(_, &node_type)| node_type == NodeType::Server)
+            .all(|(&server_id, _)| {
+                adj_list.get(&server_id)
+                    .map_or(false, |neighbors| neighbors.len() >= 2)
+            });
 
         clients_valid && servers_valid
     }
@@ -701,11 +731,9 @@ mod tests {
     // Test base per la creazione del controller
     #[test]
     fn test_controller_creation() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -718,11 +746,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -734,9 +760,9 @@ mod tests {
             message_sender,
         );
 
-        assert_eq!(controller.drones.len(), 0);
-        assert_eq!(controller.clients.len(), 0);
-        assert_eq!(controller.servers.len(), 0);
+        assert_eq!(controller.node_types.len(), 0);
+        assert_eq!(controller.drones_types.len(), 0);
+        assert_eq!(controller.connections.len(), 0);
     }
 
     // Test per l'enum ControllerError
@@ -758,11 +784,13 @@ mod tests {
     // Test per is_drone method
     #[test]
     fn test_is_drone() {
-        let mut drones = HashMap::new();
+        let mut node_types = HashMap::new();
+        node_types.insert(1, NodeType::Drone);
+        node_types.insert(2, NodeType::Client);
+        node_types.insert(3, NodeType::Server);
+
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -774,15 +802,10 @@ mod tests {
         let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
-        // Simula l'aggiunta di un drone
-        // Per questo test, usiamo solo un placeholder dato che non possiamo creare droni reali
-
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -794,19 +817,108 @@ mod tests {
             message_sender,
         );
 
-        // Test con ID inesistente
-        assert!(!controller.is_drone(&1));
-        assert!(!controller.is_drone(&99));
+        // Test con diversi tipi di nodi
+        assert!(controller.is_drone(&1));
+        assert!(!controller.is_drone(&2));
+        assert!(!controller.is_drone(&3));
+        assert!(!controller.is_drone(&99)); // ID inesistente
+    }
+
+    // Test per is_client e is_server
+    #[test]
+    fn test_is_client_and_server() {
+        let mut node_types = HashMap::new();
+        node_types.insert(1, NodeType::Drone);
+        node_types.insert(2, NodeType::Client);
+        node_types.insert(3, NodeType::Server);
+
+        let drones_types = HashMap::new();
+        let packet_senders = HashMap::new();
+        let connections = HashMap::new();
+        let send_command_drone = HashMap::new();
+        let send_command_node = HashMap::new();
+        let receiver_event = HashMap::new();
+        let receriver_node_event = HashMap::new();
+        let client_ui_state = client::ui::UiState::new();
+
+        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
+        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
+        let (message_sender, _message_receiver) = unbounded::<MessageType>();
+
+        let controller = ControllerHandler::new(
+            node_types,
+            drones_types,
+            packet_senders,
+            connections,
+            send_command_drone,
+            send_command_node,
+            receiver_event,
+            receriver_node_event,
+            client_ui_state,
+            button_receiver,
+            graph_action_sender,
+            message_sender,
+        );
+
+        // Test is_client
+        assert!(!controller.is_client(&1));
+        assert!(controller.is_client(&2));
+        assert!(!controller.is_client(&3));
+
+        // Test is_server
+        assert!(!controller.is_server(&1));
+        assert!(!controller.is_server(&2));
+        assert!(controller.is_server(&3));
+    }
+
+    // Test per get_node_type
+    #[test]
+    fn test_get_node_type() {
+        let mut node_types = HashMap::new();
+        node_types.insert(1, NodeType::Drone);
+        node_types.insert(2, NodeType::Client);
+        node_types.insert(3, NodeType::Server);
+
+        let drones_types = HashMap::new();
+        let packet_senders = HashMap::new();
+        let connections = HashMap::new();
+        let send_command_drone = HashMap::new();
+        let send_command_node = HashMap::new();
+        let receiver_event = HashMap::new();
+        let receriver_node_event = HashMap::new();
+        let client_ui_state = client::ui::UiState::new();
+
+        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
+        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
+        let (message_sender, _message_receiver) = unbounded::<MessageType>();
+
+        let controller = ControllerHandler::new(
+            node_types,
+            drones_types,
+            packet_senders,
+            connections,
+            send_command_drone,
+            send_command_node,
+            receiver_event,
+            receriver_node_event,
+            client_ui_state,
+            button_receiver,
+            graph_action_sender,
+            message_sender,
+        );
+
+        assert_eq!(controller.get_node_type(&1), Some(&NodeType::Drone));
+        assert_eq!(controller.get_node_type(&2), Some(&NodeType::Client));
+        assert_eq!(controller.get_node_type(&3), Some(&NodeType::Server));
+        assert_eq!(controller.get_node_type(&99), None);
     }
 
     // Test per generate_random_id con ID limitati
     #[test]
     fn test_generate_random_id_with_available_ids() {
-        let mut drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
         let mut packet_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -825,11 +937,9 @@ mod tests {
         }
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
             packet_senders,
-            clients,
-            servers,
             connections,
             send_command_drone,
             send_command_node,
@@ -850,11 +960,9 @@ mod tests {
     // Test per validate_network_constraints con rete vuota
     #[test]
     fn test_validate_network_constraints_empty() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -867,11 +975,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -887,14 +993,67 @@ mod tests {
         assert!(controller.validate_network_constraints(&adj_list));
     }
 
+    // Test per validate_network_constraints con client e server
+    #[test]
+    fn test_validate_network_constraints_with_nodes() {
+        let mut node_types = HashMap::new();
+        node_types.insert(1, NodeType::Drone);
+        node_types.insert(2, NodeType::Client);
+        node_types.insert(3, NodeType::Server);
+
+        let drones_types = HashMap::new();
+        let packet_senders = HashMap::new();
+        let connections = HashMap::new();
+        let send_command_drone = HashMap::new();
+        let send_command_node = HashMap::new();
+        let receiver_event = HashMap::new();
+        let receriver_node_event = HashMap::new();
+        let client_ui_state = client::ui::UiState::new();
+
+        let (_button_sender, button_receiver) = unbounded::<ButtonEvent>();
+        let (graph_action_sender, _graph_action_receiver) = unbounded::<GraphAction>();
+        let (message_sender, _message_receiver) = unbounded::<MessageType>();
+
+        let controller = ControllerHandler::new(
+            node_types,
+            drones_types,
+            packet_senders,
+            connections,
+            send_command_drone,
+            send_command_node,
+            receiver_event,
+            receriver_node_event,
+            client_ui_state,
+            button_receiver,
+            graph_action_sender,
+            message_sender,
+        );
+
+        // Test con client che ha 1 connessione (valido)
+        let mut adj_list = HashMap::new();
+        adj_list.insert(1, vec![2, 3]);
+        adj_list.insert(2, vec![1]); // Client con 1 connessione
+        adj_list.insert(3, vec![1, 4]); // Server con 2 connessioni
+        adj_list.insert(4, vec![3]);
+
+        assert!(controller.validate_network_constraints(&adj_list));
+
+        // Test con client che ha 3 connessioni (non valido)
+        adj_list.insert(2, vec![1, 3, 4]); // Client con 3 connessioni
+        assert!(!controller.validate_network_constraints(&adj_list));
+
+        // Test con server che ha solo 1 connessione (non valido)
+        adj_list.insert(2, vec![1]); // Ripristina client
+        adj_list.insert(3, vec![1]); // Server con solo 1 connessione
+        assert!(!controller.validate_network_constraints(&adj_list));
+    }
+
     // Test per change_packet_drop_rate con nodo inesistente
     #[test]
     fn test_change_packet_drop_rate_invalid_node() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -907,11 +1066,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let mut controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -934,11 +1091,9 @@ mod tests {
     // Test per send_packet_to_client con client inesistente
     #[test]
     fn test_send_packet_to_client_not_found() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -951,11 +1106,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -992,11 +1145,9 @@ mod tests {
     // Test per message helpers
     #[test]
     fn test_message_helpers() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -1009,11 +1160,9 @@ mod tests {
         let (message_sender, message_receiver) = unbounded::<MessageType>();
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -1046,11 +1195,9 @@ mod tests {
     // Test per select_drone_group
     #[test]
     fn test_select_drone_group_empty() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -1063,11 +1210,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -1087,11 +1232,9 @@ mod tests {
     // Test per select_drone_group con valori
     #[test]
     fn test_select_drone_group_with_values() {
-        let drones = HashMap::new();
+        let node_types = HashMap::new();
         let drones_types = HashMap::new();
-        let drone_senders = HashMap::new();
-        let clients = HashMap::new();
-        let servers = HashMap::new();
+        let packet_senders = HashMap::new();
         let connections = HashMap::new();
         let send_command_drone = HashMap::new();
         let send_command_node = HashMap::new();
@@ -1104,11 +1247,9 @@ mod tests {
         let (message_sender, _message_receiver) = unbounded::<MessageType>();
 
         let mut controller = ControllerHandler::new(
-            drones,
+            node_types,
             drones_types,
-            drone_senders,
-            clients,
-            servers,
+            packet_senders,
             connections,
             send_command_drone,
             send_command_node,
@@ -1130,93 +1271,5 @@ mod tests {
 
         // Dovrebbe selezionare il gruppo con il conteggio minimo (BagelBomber con 1)
         assert_eq!(*result.unwrap(), DroneGroup::BagelBomber);
-    }
-}
-
-// Test separati per le funzioni helper globali
-#[cfg(test)]
-mod helper_function_tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    #[test]
-    fn test_is_connected_empty_graph() {
-        let adj_list = HashMap::new();
-        // Un grafo vuoto è considerato connesso
-        assert!(is_connected(&1, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_single_node() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, Vec::new());
-        assert!(is_connected(&1, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_two_connected_nodes() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, vec![2]);
-        adj_list.insert(2, vec![1]);
-
-        assert!(is_connected(&1, &adj_list));
-        assert!(is_connected(&2, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_two_disconnected_nodes() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, Vec::new());
-        adj_list.insert(2, Vec::new());
-
-        assert!(!is_connected(&1, &adj_list));
-        assert!(!is_connected(&2, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_complex_connected() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, vec![2, 3]);
-        adj_list.insert(2, vec![1, 4]);
-        adj_list.insert(3, vec![1, 4]);
-        adj_list.insert(4, vec![2, 3]);
-
-        assert!(is_connected(&1, &adj_list));
-        assert!(is_connected(&2, &adj_list));
-        assert!(is_connected(&3, &adj_list));
-        assert!(is_connected(&4, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_after_removal_disconnects() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, vec![2]);
-        adj_list.insert(2, vec![1, 3]);
-        adj_list.insert(3, vec![2]);
-
-        // Rimuovendo il nodo 2 (bridge), dovrebbe disconnettere
-        assert!(!is_connected_after_removal(&2, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_after_removal_stays_connected() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, vec![2, 3]);
-        adj_list.insert(2, vec![1, 3]);
-        adj_list.insert(3, vec![1, 2]);
-
-        // Rimuovendo qualsiasi nodo da questo triangolo, dovrebbe rimanere connesso
-        assert!(is_connected_after_removal(&1, &adj_list));
-        assert!(is_connected_after_removal(&2, &adj_list));
-        assert!(is_connected_after_removal(&3, &adj_list));
-    }
-
-    #[test]
-    fn test_is_connected_after_removal_empty_result() {
-        let mut adj_list = HashMap::new();
-        adj_list.insert(1, Vec::new());
-
-        // Rimuovendo l'unico nodo dovrebbe risultare in un grafo vuoto (connesso)
-        assert!(is_connected_after_removal(&1, &adj_list));
     }
 }

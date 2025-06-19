@@ -24,8 +24,10 @@ use rustastic_drone::RustasticDrone;
 use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
-use controller::DroneGroup;
+use controller::{ButtonEvent, DroneGroup, GraphAction, MessageType, NodeType};
 use wg_2024::drone::Drone as DroneTrait;
+use client::ui::{ClientState, UiState};
+use controller::controller_handler::ControllerHandler;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -80,7 +82,8 @@ fn validate(cfg: &Config) -> Result<(), ConfigError> {
 pub fn start() -> Result<(
     HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>,
     HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>,
-    Vec<JoinHandle<()>>
+    Vec<JoinHandle<()>>, Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
+    Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>, HashMap<NodeId, NodeType>
 ), Box<dyn std::error::Error>>{
     let cfg = parse_config("config.toml")?;
 
@@ -91,6 +94,7 @@ pub fn start() -> Result<(
     let mut sender_receiver_node_event: HashMap<NodeId, (Sender<NodeEvent>, Receiver<NodeEvent>)> = HashMap::new();
     let mut sender_receiver_node_to_ui_communication: HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)> = HashMap::new();
     let mut sender_receiver_node_from_ui_communication: HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)> = HashMap::new();
+
 
     // Create channels for drones
     for node in cfg.drone.iter() {
@@ -131,6 +135,13 @@ pub fn start() -> Result<(
     //let mut drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>> = HashMap::new();
     let mut drones_types: HashMap<NodeId, DroneGroup> = HashMap::new();
     let mut drones_counter: HashMap<DroneGroup, i8> = HashMap::new();
+    let mut drone_senders: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+    let mut connections: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+    let mut send_command_drone: HashMap<NodeId, Sender<DroneCommand>> = HashMap::new();
+    let mut send_command_node: HashMap<NodeId, Sender<NodeCommand>> = HashMap::new();
+    let mut receivers_drone_event: HashMap<NodeId, Receiver<DroneEvent>> = HashMap::new();
+    let mut receivers_node_event: HashMap<NodeId, Receiver<NodeEvent>> = HashMap::new();
+    let mut nodes: HashMap<NodeId, NodeType> = HashMap::new();
 
     let mut index = 0;
 
@@ -145,13 +156,28 @@ pub fn start() -> Result<(
         let receiver_packet = sender_receiver_packet.get(&node.id)
             .ok_or(format!("Packet sender not found for node {}", node.id))?
             .1.clone();
-        
+
+        drone_senders.insert(node.id, sender_receiver_packet.get(&node.id)
+            .ok_or(format!("Packet sender not found for node {}", node.id))?
+            .0.clone());
+
+        send_command_drone.insert(node.id, sender_receiver_drone_command.get(&node.id)
+            .ok_or(format!("Drone command receiver not found for node {}", node.id))?
+            .0.clone());
+
         let mut sender_packet: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+        receivers_drone_event.insert(node.id, sender_receiver_pair_drone_event.get(&node.id)
+            .ok_or(format!("Drone event receiver not found for node {}", node.id))?
+            .1.clone());
 
         let node_id = node.id;
+
         for id in node.connected_node_ids.clone(){
             let _ = sender_packet.insert(id, sender_receiver_packet.get(&node.id).ok_or(format!("Packet sender not found for node {}", node.id))?.0.clone());
+            connections.entry(node.id).or_insert_with(Vec::new).push(id);
         }
+
+        nodes.insert(node.id, NodeType::Drone);
 
         let mut drone: Option<Box <dyn DroneTrait>> = match index {
             0 => {
@@ -305,6 +331,7 @@ pub fn start() -> Result<(
                 .ok_or(format!("Packet sender not found for drone {}", adj))?
                 .0.clone();
             sender_hash.insert(adj, sender);
+            connections.entry(node.id).or_insert_with(Vec::new).push(adj);
         }
 
         let receiver_packet = sender_receiver_packet.get(&node.id)
@@ -323,6 +350,16 @@ pub fn start() -> Result<(
             .ok_or(format!("UI communication receiver not found for node {}", node.id))?
             .1.clone();
 
+        send_command_node.insert(node.id, sender_receiver_node_command.get(&node.id)
+            .ok_or(format!("Node command receiver not found for node {}", node.id))?
+            .0.clone());
+
+        receivers_node_event.insert(node.id, sender_receiver_node_event.get(&node.id)
+            .ok_or(format!("Node event sender not found for node {}", node.id))?
+            .1.clone());
+
+        nodes.insert(node.id, NodeType::Client);
+
         let node_id = node.id;
         let handle = thread::spawn(move || {
             let mut node = Worker::new(
@@ -337,6 +374,7 @@ pub fn start() -> Result<(
             node.run();
         });
         thread_handles.push(handle);
+        //TODO aggiungere i client al UiState
     }
 
     // Start server threads
@@ -347,6 +385,7 @@ pub fn start() -> Result<(
                 .ok_or(format!("Packet sender not found for drone {}", adj))?
                 .0.clone();
             sender_hash.insert(adj, sender);
+            connections.entry(node.id).or_insert_with(Vec::new).push(adj);
         }
 
         let receiver_packet = sender_receiver_packet.get(&node.id)
@@ -358,6 +397,16 @@ pub fn start() -> Result<(
         let receiver_node_command = sender_receiver_node_command.get(&node.id)
             .ok_or(format!("Node command receiver not found for node {}", node.id))?
             .1.clone();
+
+        send_command_node.insert(node.id, sender_receiver_node_command.get(&node.id)
+            .ok_or(format!("Node command receiver not found for node {}", node.id))?
+            .0.clone());
+
+        receivers_node_event.insert(node.id, sender_receiver_node_event.get(&node.id)
+            .ok_or(format!("Node event sender not found for node {}", node.id))?
+            .1.clone());
+
+        nodes.insert(node.id, NodeType::Server);
 
         let node_id = node.id;
         let handle = thread::spawn(move || {
@@ -373,7 +422,23 @@ pub fn start() -> Result<(
         thread_handles.push(handle);
     }
 
-    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication, thread_handles))
+    let (button_sender, button_receiver) = unbounded::<ButtonEvent>();
+    let (graph_action_sender, graph_action_receiver) = unbounded::<GraphAction>();
+    let (message_sender, message_receiver) = unbounded::<MessageType>();
+    let (client_state_sender, client_state_receiver) = unbounded::<(NodeId, ClientState)>();
+    
+    let cloned_node = nodes.clone();
+    let cloned_connections = connections.clone();
+
+    let controller_handler: ControllerHandler = ControllerHandler::new(cloned_node, drones_types, drone_senders, cloned_connections,
+                                                                       send_command_drone, send_command_node, receivers_drone_event,
+                                                                       receivers_node_event, button_receiver, graph_action_sender,
+                                                                       message_sender, client_state_sender);
+    // Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
+    // Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>, HashMap<NodeId, NodeType>
+
+    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication, thread_handles, button_sender, graph_action_receiver,
+    message_receiver, client_state_receiver, connections, nodes ))
 }
 
 //the Network Initialization File should represent a connected graph
