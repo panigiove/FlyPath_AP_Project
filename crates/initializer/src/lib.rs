@@ -25,6 +25,7 @@ use rustbusters_drone::RustBustersDrone;
 use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
 use controller::DroneGroup;
+use wg_2024::drone::Drone as DroneTrait;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -148,11 +149,11 @@ pub fn start() -> Result<(
         let mut sender_packet: HashMap<NodeId, Sender<Packet>> = HashMap::new();
 
         let node_id = node.id;
-        for id in node.connected_node_ids{
+        for id in node.connected_node_ids.clone(){
             let _ = sender_packet.insert(id, sender_receiver_packet.get(&node.id).ok_or(format!("Packet sender not found for node {}", node.id))?.0.clone());
         }
 
-        let drone: Option<Box <dyn wg_2024::drone::Drone>> = match index {
+        let mut drone: Option<Box <dyn DroneTrait>> = match index {
             0 => {
                 drones_types.insert(node_id, DroneGroup::RustInPeace);
                 index = index + 1;
@@ -285,8 +286,8 @@ pub fn start() -> Result<(
             },
             _ => {None}
         };
-        
-        if let Some(drone) = drone {
+
+        if let Some(mut drone) = drone {
             let handle = thread::spawn(move || {
                 drone.run();
             });
