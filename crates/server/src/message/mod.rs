@@ -95,6 +95,12 @@ impl ServerMessageManager {
 
             match message {
                 ChatRequest::ClientList => {
+                    if !self.is_registered(&key.1) {
+                        info!("Client {:?} not registered", key.1);
+                        let msg = ChatResponse::ErrorWrongClientId(key.1);
+                        sent_msg_wrapper = SentMessageWrapper::from_message(session_id, key.1, &msg);
+                        return Some(sent_msg_wrapper);
+                    }
                     let client_list = self.get_all_registered_clients();
                     let msg = ChatResponse::ClientList(client_list);
                     sent_msg_wrapper = SentMessageWrapper::from_message(session_id, key.1, &msg);
@@ -106,7 +112,7 @@ impl ServerMessageManager {
                     None
                 }
                 ChatRequest::SendMessage { from, to, message } => {
-                    if !self.is_registered(&to) {
+                    if !self.is_registered(&key.1) || !self.is_registered(&to) {
                         info!("Client {:?} not registered", to);
                         let msg = ChatResponse::ErrorWrongClientId(to);
                         sent_msg_wrapper = SentMessageWrapper::from_message(session_id, key.1, &msg);

@@ -91,11 +91,6 @@ impl ChatServer {
             //da completare
             PacketType::MsgFragment(fragment) => {
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
-                if !self.server_message_manager.is_registered(&key.1) {
-                    warn!("Client {} not registered", key.1);
-                    
-                    return;
-                }
                 
                 self.server_message_manager.store_fragment(key, fragment.clone());
 
