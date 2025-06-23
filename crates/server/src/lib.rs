@@ -124,14 +124,14 @@ impl ChatServer {
             //da completare, mancano controlli (?)
             PacketType::Ack(ack) => {
                 self.network_manager
-                    .update_from_ack(packet.routing_header.hops);
+                    .update_from_ack(&packet.routing_header.hops);
                 self.server_message_manager
                     .insert_ack(ack, &packet.session_id);
             }
             //da controllare
             PacketType::Nack(nack) => {
                 self.network_manager
-                    .update_from_nack(packet.routing_header.hops[0], nack.clone());
+                    .update_from_nack(&packet.routing_header.hops, nack.clone());
 
                 let wrapper = self
                     .server_message_manager

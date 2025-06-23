@@ -59,7 +59,14 @@ impl NetworkManager {
     pub fn update_errors(&mut self) {
         self.n_errors += 1;
     }
-    pub fn update_from_nack(&mut self, nack_source: NodeId, nack: Nack) {
+    pub fn update_from_nack(&mut self, hops: &Vec<NodeId>, nack: Nack) {
+        let nack_source = hops[0];
+        for hop in hops.iter() {
+            if self.server_id != *hop || *hop != nack_source {
+                self.topology.get_mut(hop).unwrap().2 += 1.0;
+                self.topology.get_mut(hop).unwrap().1 += 1.0;
+            }
+        }
         match nack.nack_type {
             NackType::DestinationIsDrone => {
                 info!("Destination is drone detected");
@@ -70,16 +77,20 @@ impl NetworkManager {
                 self.topology.get_mut(&nack_source).unwrap().2 += 1.0;
                 self.n_dropped += 1;
             }
-            NackType::ErrorInRouting(node) | NackType::UnexpectedRecipient(node) => {
+            NackType::ErrorInRouting(node) => {
                 info!("Error in routing detected: {}", node);
                 self.n_errors += 1;
                 self.topology.remove(&node);
                 self.generate_all_routes();
             }
+            NackType::UnexpectedRecipient(node) => {
+                info!("Unexpected recipient detected: {}", node);
+                self.n_errors += 1;
+            }
         }
     }
 
-    pub fn update_from_ack(&mut self, hops: Vec<NodeId>) {
+    pub fn update_from_ack(&mut self, hops: &Vec<NodeId>) {
         for hop in hops.iter() {
             if !self.client_list.contains(hop) || self.server_id != *hop {
                 self.topology.get_mut(hop).unwrap().2 += 1.0;
