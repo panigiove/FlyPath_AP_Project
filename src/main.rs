@@ -8,45 +8,93 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use egui::Context;
 use wg_2024::network::NodeId;
+use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp, MessageType, NodeType};
 
 // TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
 // TODO: gentle crash
 fn main() -> eframe::Result {
-    let (to_ui, from_ui, _handlers) = start().unwrap_or_else(|e| {
+    let (to_ui,
+        from_ui,
+        _handlers,
+        button_sender,
+        graph_action_receiver,  
+        message_receiver,
+        client_state_receiver,
+        connections,
+        nodes) = start().unwrap_or_else(|e| {
         eprintln!("Errore durante l'avvio del sistema: {}", e);
         process::exit(1);
     });
 
     let client_ui_state = _setup_ui_client_state(to_ui, from_ui);
+    
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([620.0, 540.0]),
         ..Default::default()
     };
+    
     eframe::run_native(
         "FLYPATH",
         options,
-        Box::new(|_cc| Ok(Box::<App>::new(App::new(client_ui_state)))),
+        Box::new(move |cc| Ok(Box::<App>::new(App::new(
+            cc,
+            client_ui_state,
+            button_sender,
+            graph_action_receiver,
+            message_receiver,
+            client_state_receiver,
+            connections,
+            nodes,
+        )))),
     )
 }
 
 struct App {
     client_ui_state: Arc<Mutex<UiState>>,
+    controller_ui: ControllerUi,
 }
 
 impl App {
-    fn new (ui_state: UiState) -> Self {
+    
+    //cc: &eframe::CreationContext<'_>, client_ui_state: Arc<Mutex<UiState>>,
+    //                graph_updates_receiver: Receiver<GraphAction>, button_event_sender: Sender<ButtonEvent>,
+    //                message_receiver: Receiver<MessageType>, connections: HashMap<NodeId, Vec<NodeId>>,
+    //                node_types: HashMap<NodeId, NodeType>
+    fn new (cc: &eframe::CreationContext<'_>, ui_state: UiState, button_sender: Sender<ButtonEvent>,
+            graph_action_receiver: Receiver<GraphAction>,
+            message_receiver: Receiver<MessageType>,
+            client_state_receiver: Receiver<(NodeId, ClientState)>,
+            connections: HashMap<NodeId, Vec<NodeId>>,
+            nodes: HashMap<NodeId, NodeType>) -> Self {
+        let client_ui_state =  Arc::new(Mutex::new(ui_state));
+        let controller_ui = ControllerUi::new(
+            cc,
+            client_ui_state.clone(), //TODO UI state deve implementare clone
+            graph_action_receiver,
+            button_sender,
+            message_receiver,
+            connections,
+            nodes
+        );; //valido fare client_ui_state.clone()?
+        
         Self {
-            client_ui_state: Arc::new(Mutex::new(ui_state)),
+            client_ui_state,
+            controller_ui
         }
     }
 }
 
+// &mut self, ctx: &Context, frame: &mut Frame
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            //TODO: draw controller
-            ui.label("Hello from controller");
-        });
+        // egui::CentralPanel::default().show(ctx, |ui| {
+        //     //TODO: draw controller
+        //     ui.label("Hello from controller");
+        // });
+        self.controller_ui.update(ctx, _frame);
+
+        // Renderizza l'UI del network (GraphApp, ButtonWindow, MessageWindow)
+        self.controller_ui.render(ctx, _frame);
 
 
         let ui_state_clone = self.client_ui_state.clone();

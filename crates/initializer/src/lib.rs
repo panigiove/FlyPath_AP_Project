@@ -1,4 +1,3 @@
-use wg_2024::wg_drone::Drone;
 use client::comunication::{FromUiCommunication, ToUICommunication};
 use client::worker::Worker;
 use crossbeam_channel::{unbounded, Receiver, Sender};

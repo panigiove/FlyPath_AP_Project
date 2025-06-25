@@ -17,6 +17,7 @@ wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 rand = "0.8"
 petgraph = "0.6"
 
+lazy_static = "1.4"
 
 lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
 rustbusters-drone = {git = "https://github.com/Rustbusters/drone.git" }
