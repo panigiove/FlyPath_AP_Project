@@ -78,13 +78,13 @@ fn validate(cfg: &Config) -> Result<(), ConfigError> {
     Ok(())
 }
 
-pub fn start() -> Result<(
+pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>,
     HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>,
     Vec<JoinHandle<()>>, Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
     Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>, HashMap<NodeId, NodeType>
 ), Box<dyn std::error::Error>>{
-    let cfg = parse_config("config.toml")?;
+    let cfg = parse_config(config_path)?;
 
     let mut sender_receiver_pair_drone_event: HashMap<NodeId, (Sender<DroneEvent>, Receiver<DroneEvent>)> = HashMap::new();
     let mut sender_receiver_drone_command: HashMap<NodeId, (Sender<DroneCommand>, Receiver<DroneCommand>)> = HashMap::new();
@@ -172,7 +172,7 @@ pub fn start() -> Result<(
         let node_id = node.id;
 
         for id in node.connected_node_ids.clone(){
-            let _ = sender_packet.insert(id, sender_receiver_packet.get(&node.id).ok_or(format!("Packet sender not found for node {}", node.id))?.0.clone());
+            let _ = sender_packet.insert(id, sender_receiver_packet.get(&id).ok_or(format!("Packet sender not found for node {}", node.id))?.0.clone());
             connections.entry(node.id).or_insert_with(Vec::new).push(id);
         }
 
@@ -442,47 +442,64 @@ pub fn start() -> Result<(
 
 //the Network Initialization File should represent a connected graph
 fn is_connected(config: &Config) -> bool {
-    // create a single vec of ids and unify the three adj list
-    let mut all_node_ids: HashSet<NodeId> = HashSet::new();
+    
+    let mut all_existing_nodes: HashSet<NodeId> = HashSet::new();
     let mut node_connections: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
-    for drone in &config.drone {
-        all_node_ids.insert(drone.id);
-        all_node_ids.extend(&drone.connected_node_ids);
 
-        let connections = node_connections.entry(drone.id).or_default();
-        connections.extend(&drone.connected_node_ids);
+    
+    for drone in &config.drone {
+        all_existing_nodes.insert(drone.id);
+        node_connections.insert(drone.id, HashSet::new());
     }
     for client in &config.client {
-        all_node_ids.insert(client.id);
-        all_node_ids.extend(&client.connected_drone_ids);
-
-        let connections = node_connections.entry(client.id).or_default();
-        connections.extend(&client.connected_drone_ids);
+        all_existing_nodes.insert(client.id);
+        node_connections.insert(client.id, HashSet::new());
     }
     for server in &config.server {
-        all_node_ids.insert(server.id);
-        all_node_ids.extend(&server.connected_drone_ids);
-
-        let connections = node_connections.entry(server.id).or_default();
-        connections.extend(&server.connected_drone_ids);
+        all_existing_nodes.insert(server.id);
+        node_connections.insert(server.id, HashSet::new());
+    }
+    
+    for drone in &config.drone {
+        let connections = node_connections.get_mut(&drone.id).unwrap();
+        for &connected_id in &drone.connected_node_ids {
+            if all_existing_nodes.contains(&connected_id) {
+                connections.insert(connected_id);
+            }
+        }
+    }
+    for client in &config.client {
+        let connections = node_connections.get_mut(&client.id).unwrap();
+        for &connected_id in &client.connected_drone_ids {
+            if all_existing_nodes.contains(&connected_id) {
+                connections.insert(connected_id);
+            }
+        }
+    }
+    for server in &config.server {
+        let connections = node_connections.get_mut(&server.id).unwrap();
+        for &connected_id in &server.connected_drone_ids {
+            if all_existing_nodes.contains(&connected_id) {
+                connections.insert(connected_id);
+            }
+        }
     }
 
-    // if is empty end
-    if all_node_ids.is_empty() {
+    //if there are no nodes is connected
+    if all_existing_nodes.is_empty() {
         return true;
     }
 
-    // dfs travel the graph from a random node, if visited eq nodes' set the graph is connected and bilateral
-    let start_node = all_node_ids.iter().next().cloned().unwrap();
+    // DFS
+    let start_node = *all_existing_nodes.iter().next().unwrap();
 
     let mut visited = HashSet::new();
     let mut to_visit = vec![start_node];
 
     while let Some(current) = to_visit.pop() {
         if visited.insert(current) {
-            // Aggiungi vicini non ancora visitati
-            if let Some(node_connections) = node_connections.get(&current) {
-                for &neighbor in node_connections {
+            if let Some(neighbors) = node_connections.get(&current) {
+                for &neighbor in neighbors {
                     if !visited.contains(&neighbor) {
                         to_visit.push(neighbor);
                     }
@@ -490,10 +507,10 @@ fn is_connected(config: &Config) -> bool {
             }
         }
     }
-
-    // Controlla se tutti i nodi sono stati visitati
-    visited == all_node_ids
+    
+    visited == all_existing_nodes
 }
+
 
 //The Network Initialization File should represent a bidirectional graph
 fn is_bidirectional(cfg: &Config) -> bool {

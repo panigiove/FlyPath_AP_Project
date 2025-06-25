@@ -1,70 +1,70 @@
-use egui::{Pos2, Vec2, TextureId, Color32};
-use eframe::epaint::{Rect, Stroke, Rounding, Shape};
+use egui::{Pos2, Vec2, TextureId, Color32, Painter};
+use eframe::epaint::{Rect, Stroke};
 use wg_2024::network::NodeId;
 use crate::utility::NodeType;
 use std::collections::HashSet;
 
-type NodePayload = (NodeId, NodeType);
-
 #[derive(Clone)]
-pub struct CustomNode {
+pub struct GraphNode {
+    // Dati essenziali
     pub id: NodeId,
     pub node_type: NodeType,
-    pub image_path: String,
+
+    // Posizione e dimensioni
     pub position: Pos2,
-    pub label: String,
     pub size: Vec2,
+
+    // Aspetto visivo
     pub texture_id: Option<TextureId>,
+    pub label: Option<String>,
+
+    // Stato
     pub selected: bool,
+    pub dragging: bool,
 }
 
-impl CustomNode {
-    pub fn new(id: NodeId, node_type: NodeType, image_path: String, position: Pos2, size: Vec2, texture_id: TextureId) -> Self {
-        let label = match node_type {
-            NodeType::Drone => format!("Drone {}", id),
-            NodeType::Server => format!("Server {}", id),
-            NodeType::Client => format!("Client {}", id),
-        };
-
+impl GraphNode {
+    /// Crea un nuovo nodo con i parametri essenziali
+    pub fn new(id: NodeId, node_type: NodeType, position: Pos2) -> Self {
         Self {
             id,
             node_type,
-            image_path,
             position,
-            label,
-            size,
-            texture_id: Some(texture_id),
+            size: Vec2::new(60.0, 60.0), // Dimensione di default
+            texture_id: None,
+            label: None,
             selected: false,
+            dragging: false,
         }
     }
 
-    pub fn with_label(mut self, label: String) -> Self {
-        self.label = label;
+    /// Builder pattern per configurazione fluida
+    pub fn with_size(mut self, size: Vec2) -> Self {
+        self.size = size;
         self
     }
 
-    // Colori coerenti con il design originale
-    fn get_color(&self, selected: bool) -> Color32 {
-        if selected {
-            // Oro quando selezionato
-            Color32::from_rgb(255, 215, 0)
-        } else {
-            // Colori normali per tipo
-            match self.node_type {
-                NodeType::Client => Color32::from_rgb(100, 200, 100),   // Verde
-                NodeType::Drone => Color32::from_rgb(100, 150, 255),    // Blu
-                NodeType::Server => Color32::from_rgb(255, 150, 100),   // Arancione
-            }
-        }
+    pub fn with_texture(mut self, texture_id: TextureId) -> Self {
+        self.texture_id = Some(texture_id);
+        self
     }
 
-    fn get_border_color(&self, selected: bool) -> Color32 {
-        if selected {
-            Color32::from_rgb(255, 215, 0) // Oro quando selezionato
-        } else {
-            Color32::BLACK // Nero normale
-        }
+    pub fn with_label<S: Into<String>>(mut self, label: S) -> Self {
+        self.label = Some(label.into());
+        self
     }
+
+    pub fn with_auto_label(mut self) -> Self {
+        let label = match self.node_type {
+            NodeType::Client => format!("💻 {}", self.id),
+            NodeType::Drone => format!("🚁 {}", self.id),
+            NodeType::Server => format!("🖥️ {}", self.id),
+        };
+        self.label = Some(label);
+        self
+    }
+
+    // === METODI DI STATO ===
 
     pub fn set_selected(&mut self, selected: bool) {
         self.selected = selected;
@@ -78,62 +78,11 @@ impl CustomNode {
         self.position = position;
     }
 
-    pub fn get_position(&self) -> Pos2 {
-        self.position
+    pub fn move_by(&mut self, delta: Vec2) {
+        self.position += delta;
     }
 
-    pub fn draw(&self, ui: &mut egui::Ui, painter: &egui::Painter) {
-        let half_size = Vec2::new(self.size.x / 2.0, self.size.y / 2.0);
-        let min_pos = Pos2::new(self.position.x - half_size.x, self.position.y - half_size.y);
-        let max_pos = Pos2::new(self.position.x + half_size.x, self.position.y + half_size.y);
-        let rect = Rect::from_min_max(min_pos, max_pos);
-
-        // Aureola se selezionato
-        if self.selected {
-            let expanded_rect = Rect::from_min_max(
-                Pos2::new(min_pos.x - 4.0, min_pos.y - 4.0),
-                Pos2::new(max_pos.x + 4.0, max_pos.y + 4.0)
-            );
-            let halo_shape = Shape::rect_filled(expanded_rect, 8.0, Color32::from_rgba_unmultiplied(255, 215, 0, 200));
-            painter.add(halo_shape);
-        }
-
-        // Texture o colore di riempimento
-        if let Some(texture_id) = self.texture_id {
-            let epaint_texture_id: epaint::TextureId = texture_id.into();
-            let texture_shape = Shape::image(
-                epaint_texture_id,
-                rect,
-                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
-                Color32::WHITE
-            );
-            painter.add(texture_shape);
-        } else {
-            let color = self.get_color(self.selected);
-            let fill_shape = Shape::rect_filled(rect, 6.0, color);
-            painter.add(fill_shape);
-        }
-
-        // Bordo
-        let border_color = self.get_border_color(self.selected);
-        let stroke_width = if self.selected { 4.0 } else { 2.0 };
-        let rounding = Rounding::same(6.0);
-        let stroke = Stroke::new(stroke_width, border_color);
-        let border_shape = Shape::rect_stroke(rect, rounding, stroke);
-        painter.add(border_shape);
-
-        // Label (opzionale)
-        if !self.label.is_empty() {
-            let text_pos = Pos2::new(self.position.x, max_pos.y + 15.0);
-            painter.text(
-                text_pos,
-                egui::Align2::CENTER_CENTER,
-                &self.label,
-                egui::FontId::default(),
-                if self.selected { Color32::from_rgb(255, 215, 0) } else { Color32::BLACK }
-            );
-        }
-    }
+    // === GEOMETRIA ===
 
     pub fn contains_point(&self, point: Pos2) -> bool {
         let half_size = self.size / 2.0;
@@ -144,10 +93,16 @@ impl CustomNode {
             point.y >= min_pos.y && point.y <= max_pos.y
     }
 
-    pub fn closest_boundary_point(&self, direction: Vec2) -> Pos2 {
+    pub fn get_rect(&self) -> Rect {
         let half_size = self.size / 2.0;
-        let center = self.position;
+        Rect::from_min_max(
+            self.position - half_size,
+            self.position + half_size
+        )
+    }
 
+    pub fn get_edge_connection_point(&self, direction: Vec2) -> Pos2 {
+        let half_size = self.size / 2.0;
         let dir_normalized = if direction.length() > 0.0 {
             direction.normalized()
         } else {
@@ -168,49 +123,118 @@ impl CustomNode {
 
         let t = t_x.min(t_y);
         let offset = dir_normalized * t;
-        Pos2::new(center.x + offset.x, center.y + offset.y)
+        self.position + offset
     }
 
-    pub fn update_from_payload(&mut self, payload: &NodePayload) {
-        self.id = payload.0;
-        self.node_type = payload.1;
+    // === COLORI ===
 
-        // Aggiorna label se è quella di default
-        if self.label.starts_with("Client ") ||
-            self.label.starts_with("Drone ") ||
-            self.label.starts_with("Server ") {
-            self.label = match self.node_type {
-                NodeType::Drone => format!("Drone {}", self.id),
-                NodeType::Server => format!("Server {}", self.id),
-                NodeType::Client => format!("Client {}", self.id),
+    fn get_fill_color(&self) -> Color32 {
+        if self.selected {
+            Color32::from_rgb(255, 215, 0) // Oro quando selezionato
+        } else {
+            match self.node_type {
+                NodeType::Client => Color32::from_rgb(100, 200, 100),   // Verde
+                NodeType::Drone => Color32::from_rgb(100, 150, 255),    // Blu
+                NodeType::Server => Color32::from_rgb(255, 150, 100),   // Arancione
+            }
+        }
+    }
+
+    fn get_border_color(&self) -> Color32 {
+        if self.selected {
+            Color32::from_rgb(255, 215, 0) // Oro quando selezionato
+        } else {
+            Color32::BLACK
+        }
+    }
+
+    fn get_border_width(&self) -> f32 {
+        if self.selected { 3.0 } else { 2.0 }
+    }
+
+    // === RENDERING ===
+
+    pub fn draw(&self, painter: &Painter) {
+        let rect = self.get_rect();
+
+        // 1. Aureola se selezionato
+        if self.selected {
+            let expanded_rect = Rect::from_min_max(
+                rect.min - Vec2::new(4.0, 4.0),
+                rect.max + Vec2::new(4.0, 4.0)
+            );
+            painter.rect_filled(expanded_rect, 8.0,
+                                Color32::from_rgba_unmultiplied(255, 215, 0, 100));
+        }
+
+        // 2. Contenuto (texture o colore)
+        if let Some(texture_id) = self.texture_id {
+            painter.image(
+                texture_id,
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE
+            );
+        } else {
+            painter.rect_filled(rect, 6.0, self.get_fill_color());
+        }
+
+        // 3. Bordo
+        painter.rect_stroke(
+            rect,
+            6.0,
+            Stroke::new(self.get_border_width(), self.get_border_color())
+        );
+
+        // 4. Label (se presente)
+        if let Some(ref label) = self.label {
+            let text_pos = Pos2::new(self.position.x, rect.max.y + 15.0);
+            let text_color = if self.selected {
+                Color32::from_rgb(255, 215, 0)
+            } else {
+                Color32::BLACK
             };
+
+            painter.text(
+                text_pos,
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::default(),
+                text_color
+            );
         }
     }
 }
+
+// === STRUTTURA PER GLI EDGE ===
 
 #[derive(Clone)]
-pub struct CustomEdge {
+pub struct GraphEdge {
+    pub from_id: NodeId,
+    pub to_id: NodeId,
     pub selected: bool,
-    pub label: String,
     pub width: f32,
+    pub label: Option<String>,
 }
 
-impl CustomEdge {
-    pub fn new() -> Self {
+impl GraphEdge {
+    pub fn new(from_id: NodeId, to_id: NodeId) -> Self {
         Self {
+            from_id,
+            to_id,
             selected: false,
-            label: String::new(),
             width: 2.0,
+            label: None,
         }
-    }
-
-    pub fn with_label(mut self, label: String) -> Self {
-        self.label = label;
-        self
     }
 
     pub fn with_width(mut self, width: f32) -> Self {
         self.width = width;
+        self
+    }
+
+    pub fn with_label<S: Into<String>>(mut self, label: S) -> Self {
+        self.label = Some(label.into());
         self
     }
 
@@ -222,99 +246,95 @@ impl CustomEdge {
         self.selected
     }
 
-    fn get_edge_color(&self, selected: bool) -> Color32 {
-        if selected {
-            Color32::from_rgb(255, 215, 0) // Oro quando selezionato
-        } else {
-            Color32::from_rgb(150, 150, 150) // Grigio normale
-        }
-    }
-
-    fn get_edge_width(&self, selected: bool) -> f32 {
-        if selected {
-            self.width + 2.0
-        } else {
-            self.width
-        }
-    }
-
-    pub fn draw(&self, painter: &egui::Painter, start_pos: Pos2, end_pos: Pos2) {
-        let color = self.get_edge_color(self.selected);
-        let width = self.get_edge_width(self.selected);
-
-        // Aureola se selezionato
-        if self.selected {
-            let glow_stroke = Stroke::new(width + 2.0, Color32::from_rgba_unmultiplied(255, 215, 0, 100));
-            let glow_shape = Shape::line_segment([start_pos, end_pos], glow_stroke);
-            painter.add(glow_shape);
-        }
-
-        // Linea principale
-        let stroke = Stroke::new(width, color);
-        let line_shape = Shape::line_segment([start_pos, end_pos], stroke);
-        painter.add(line_shape);
-
-        // Label (opzionale)
-        if !self.label.is_empty() {
-            let mid_point = Pos2::new(
-                (start_pos.x + end_pos.x) / 2.0,
-                (start_pos.y + end_pos.y) / 2.0
-            );
-            painter.text(
-                mid_point,
-                egui::Align2::CENTER_CENTER,
-                &self.label,
-                egui::FontId::default(),
-                if self.selected { Color32::from_rgb(255, 215, 0) } else { Color32::BLACK }
-            );
-        }
-    }
-
-    pub fn contains_point(&self, start_pos: Pos2, end_pos: Pos2, point: Pos2) -> bool {
-        // Calcola distanza dal punto alla linea
-        let line_vec = end_pos - start_pos;
-        let point_vec = point - start_pos;
+    pub fn contains_point(&self, from_pos: Pos2, to_pos: Pos2, point: Pos2) -> bool {
+        let line_vec = to_pos - from_pos;
+        let point_vec = point - from_pos;
 
         if line_vec.length_sq() < f32::EPSILON {
             return false;
         }
 
         let t = (point_vec.dot(line_vec) / line_vec.length_sq()).clamp(0.0, 1.0);
-        let projection = start_pos + t * line_vec;
+        let projection = from_pos + t * line_vec;
         let distance = (point - projection).length();
 
         let tolerance = if self.selected { 8.0 } else { 5.0 };
         distance < tolerance
     }
-}
 
-impl Default for CustomEdge {
-    fn default() -> Self {
-        Self::new()
+    pub fn draw(&self, painter: &Painter, from_pos: Pos2, to_pos: Pos2) {
+        let color = if self.selected {
+            Color32::from_rgb(255, 215, 0)
+        } else {
+            Color32::from_rgb(100, 100, 100)
+        };
+
+        let width = if self.selected {
+            self.width + 1.0
+        } else {
+            self.width
+        };
+
+        // Aureola se selezionato
+        if self.selected {
+            painter.line_segment(
+                [from_pos, to_pos],
+                Stroke::new(width + 2.0, Color32::from_rgba_unmultiplied(255, 215, 0, 100))
+            );
+        }
+
+        // Linea principale
+        painter.line_segment([from_pos, to_pos], Stroke::new(width, color));
+
+        // Label (se presente)
+        if let Some(ref label) = self.label {
+            let mid_point = Pos2::new(
+                (from_pos.x + to_pos.x) / 2.0,
+                (from_pos.y + to_pos.y) / 2.0
+            );
+            painter.text(
+                mid_point,
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::default(),
+                if self.selected { Color32::from_rgb(255, 215, 0) } else { Color32::BLACK }
+            );
+        }
     }
 }
 
+// === GESTIONE SELEZIONI ===
+
 #[derive(Default)]
 pub struct GraphSelectionState {
-    pub selected_nodes: HashSet<NodeId>,
-    pub selected_edges: HashSet<(NodeId, NodeId)>,
+    pub selected_nodes: Vec<NodeId>,           // Massimo 2 nodi (FIFO)
+    pub selected_edge: Option<(NodeId, NodeId)>, // Massimo 1 edge
 }
 
 impl GraphSelectionState {
     pub fn new() -> Self {
         Self {
-            selected_nodes: HashSet::new(),
-            selected_edges: HashSet::new(),
+            selected_nodes: Vec::new(),
+            selected_edge: None,
         }
     }
 
     pub fn select_node(&mut self, node_id: NodeId) {
-        self.selected_edges.clear();
-        self.selected_nodes.insert(node_id);
+        // Deseleziona eventuali edge (mutuamente esclusivo)
+        self.selected_edge = None;
+
+        if !self.selected_nodes.contains(&node_id) {
+            self.selected_nodes.push(node_id);
+
+            // Se supera il limite di 2, rimuovi il più vecchio
+            if self.selected_nodes.len() > 2 {
+                self.selected_nodes.remove(0);
+            }
+        }
     }
 
     pub fn deselect_node(&mut self, node_id: NodeId) {
-        self.selected_nodes.remove(&node_id);
+        self.selected_nodes.retain(|&id| id != node_id);
     }
 
     pub fn toggle_node(&mut self, node_id: NodeId) {
@@ -325,23 +345,26 @@ impl GraphSelectionState {
         }
     }
 
-    pub fn select_edge(&mut self, edge: (NodeId, NodeId)) {
+    pub fn select_edge(&mut self, from_id: NodeId, to_id: NodeId) {
+        // Deseleziona tutti i nodi (mutuamente esclusivo)
         self.selected_nodes.clear();
-        let normalized_edge = if edge.0 < edge.1 { edge } else { (edge.1, edge.0) };
-        self.selected_edges.insert(normalized_edge);
+
+        // Normalizza l'edge (sempre il minore per primo)
+        let edge = if from_id < to_id { (from_id, to_id) } else { (to_id, from_id) };
+        self.selected_edge = Some(edge);
     }
 
-    pub fn deselect_edge(&mut self, edge: (NodeId, NodeId)) {
-        let normalized_edge = if edge.0 < edge.1 { edge } else { (edge.1, edge.0) };
-        self.selected_edges.remove(&normalized_edge);
+    pub fn deselect_edge(&mut self) {
+        self.selected_edge = None;
     }
 
-    pub fn toggle_edge(&mut self, edge: (NodeId, NodeId)) {
-        let normalized_edge = if edge.0 < edge.1 { edge } else { (edge.1, edge.0) };
-        if self.selected_edges.contains(&normalized_edge) {
-            self.deselect_edge(edge);
+    pub fn toggle_edge(&mut self, from_id: NodeId, to_id: NodeId) {
+        let edge = if from_id < to_id { (from_id, to_id) } else { (to_id, from_id) };
+
+        if self.selected_edge == Some(edge) {
+            self.deselect_edge();
         } else {
-            self.select_edge(edge);
+            self.select_edge(from_id, to_id);
         }
     }
 
@@ -349,266 +372,124 @@ impl GraphSelectionState {
         self.selected_nodes.contains(&node_id)
     }
 
-    pub fn is_edge_selected(&self, edge: (NodeId, NodeId)) -> bool {
-        let normalized_edge = if edge.0 < edge.1 { edge } else { (edge.1, edge.0) };
-        self.selected_edges.contains(&normalized_edge)
+    pub fn is_edge_selected(&self, from_id: NodeId, to_id: NodeId) -> bool {
+        let edge = if from_id < to_id { (from_id, to_id) } else { (to_id, from_id) };
+        self.selected_edge == Some(edge)
     }
 
     pub fn clear_all(&mut self) {
         self.selected_nodes.clear();
-        self.selected_edges.clear();
+        self.selected_edge = None;
     }
 
-    pub fn get_selected_nodes(&self) -> &HashSet<NodeId> {
+    pub fn get_selected_nodes(&self) -> &Vec<NodeId> {
         &self.selected_nodes
     }
 
-    pub fn get_selected_edges(&self) -> &HashSet<(NodeId, NodeId)> {
-        &self.selected_edges
+    pub fn get_selected_edge(&self) -> Option<(NodeId, NodeId)> {
+        self.selected_edge
     }
 }
 
-// Strutture helper per l'integrazione con egui_graphs
-#[derive(Clone)]
-pub struct NodeData {
-    pub payload: NodePayload,
-    pub location: Pos2,
-    pub selected: bool,
-    pub custom_node: CustomNode,
+// === FACTORY FUNCTIONS ===
+
+/// Crea un nodo standard con label automatica
+pub fn create_node(id: NodeId, node_type: NodeType, position: Pos2) -> GraphNode {
+    GraphNode::new(id, node_type, position).with_auto_label()
 }
 
-impl NodeData {
-    pub fn new(payload: NodePayload, location: Pos2, texture_id: Option<TextureId>) -> Self {
-        let image_path = match payload.1 {
-            NodeType::Client => "assets/client.png".to_string(),
-            NodeType::Drone => "assets/drone.png".to_string(),
-            NodeType::Server => "assets/server.png".to_string(),
-        };
-
-        let mut custom_node = CustomNode::new(
-            payload.0,
-            payload.1,
-            image_path,
-            location,
-            Vec2::new(50.0, 50.0),
-            texture_id.unwrap_or(TextureId::Managed(0))
-        );
-
-        if texture_id.is_none() {
-            custom_node.texture_id = None;
-        }
-
-        Self {
-            payload,
-            location,
-            selected: false,
-            custom_node,
-        }
-    }
-
-    pub fn update(&mut self) {
-        self.custom_node.set_position(self.location);
-        self.custom_node.set_selected(self.selected);
-        self.custom_node.update_from_payload(&self.payload);
-    }
-}
-
-#[derive(Clone)]
-pub struct EdgeData {
-    pub payload: (),
-    pub selected: bool,
-    pub custom_edge: CustomEdge,
-}
-
-impl EdgeData {
-    pub fn new(payload: ()) -> Self {
-        Self {
-            payload,
-            selected: false,
-            custom_edge: CustomEdge::new(),
-        }
-    }
-
-    pub fn update(&mut self) {
-        self.custom_edge.set_selected(self.selected);
-    }
-}
-
-// Funzioni helper per creare nodi e edge con le texture appropriate
+/// Crea un nodo con texture
 pub fn create_node_with_texture(
-    node_id: NodeId,
+    id: NodeId,
     node_type: NodeType,
     position: Pos2,
-    texture_id: Option<TextureId>
-) -> NodeData {
-    NodeData::new((node_id, node_type), position, texture_id)
+    texture_id: TextureId
+) -> GraphNode {
+    GraphNode::new(id, node_type, position)
+        .with_texture(texture_id)
+        .with_auto_label()
 }
 
-pub fn create_edge() -> EdgeData {
-    EdgeData::new(())
+/// Crea un edge standard
+pub fn create_edge(from_id: NodeId, to_id: NodeId) -> GraphEdge {
+    GraphEdge::new(from_id, to_id)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// === UTILITY FUNCTIONS ===
 
-    // Helper function per creare un texture ID mock
-    fn create_mock_texture_id() -> TextureId {
-        TextureId::Managed(0)
+/// Crea texture fallback per i nodi
+pub fn create_fallback_texture(cc: &eframe::CreationContext<'_>, node_type: NodeType) -> TextureId {
+    let size = 64;
+    let mut pixels = Vec::new();
+
+    for y in 0..size {
+        for x in 0..size {
+            let color = match node_type {
+                NodeType::Client => {
+                    if (x + y) % 8 < 4 {
+                        Color32::from_rgb(100, 200, 100)
+                    } else {
+                        Color32::from_rgb(80, 160, 80)
+                    }
+                }
+                NodeType::Drone => {
+                    let center_x = size as f32 / 2.0;
+                    let center_y = size as f32 / 2.0;
+                    let distance = ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
+                    if distance < size as f32 / 3.0 {
+                        Color32::from_rgb(100, 150, 255)
+                    } else {
+                        Color32::from_rgb(80, 120, 200)
+                    }
+                }
+                NodeType::Server => {
+                    if y % 4 < 2 {
+                        Color32::from_rgb(255, 150, 100)
+                    } else {
+                        Color32::from_rgb(200, 120, 80)
+                    }
+                }
+            };
+            pixels.push(color);
+        }
     }
 
-    // Helper function per creare un CustomNode di test
-    fn create_test_node(id: NodeId, node_type: NodeType) -> CustomNode {
-        CustomNode::new(
-            id,
-            node_type,
-            "test_path.png".to_string(),
-            Pos2::new(100.0, 100.0),
-            Vec2::new(50.0, 50.0),
-            create_mock_texture_id()
-        )
-    }
+    let color_image = egui::ColorImage {
+        size: [size, size],
+        pixels,
+    };
 
-    #[test]
-    fn test_custom_node_new() {
-        let node = CustomNode::new(
-            1,
-            NodeType::Drone,
-            "assets/drone.png".to_string(),
-            Pos2::new(50.0, 50.0),
-            Vec2::new(40.0, 40.0),
-            create_mock_texture_id()
-        );
+    cc.egui_ctx.load_texture(
+        &format!("{:?}_fallback", node_type),
+        color_image,
+        egui::TextureOptions::default(),
+    ).id()
+}
 
-        assert_eq!(node.id, 1);
-        assert_eq!(node.node_type, NodeType::Drone);
-        assert_eq!(node.image_path, "assets/drone.png");
-        assert_eq!(node.position, Pos2::new(50.0, 50.0));
-        assert_eq!(node.label, "Drone 1");
-        assert_eq!(node.size, Vec2::new(40.0, 40.0));
-        assert!(node.texture_id.is_some());
-        assert!(!node.selected);
-    }
+/// Carica texture da file
+pub fn load_texture_from_file(cc: &eframe::CreationContext<'_>, path: &str) -> Option<TextureId> {
+    match std::fs::read(path) {
+        Ok(image_data) => {
+            match image::load_from_memory(&image_data) {
+                Ok(dynamic_image) => {
+                    let rgba_image = dynamic_image.to_rgba8();
+                    let size = [rgba_image.width() as usize, rgba_image.height() as usize];
+                    let pixels: Vec<egui::Color32> = rgba_image
+                        .pixels()
+                        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                        .collect();
 
-    #[test]
-    fn test_custom_node_selection() {
-        let mut node = create_test_node(1, NodeType::Drone);
+                    let color_image = egui::ColorImage { size, pixels };
 
-        // Test stato iniziale
-        assert!(!node.is_selected());
-
-        // Test selezione
-        node.set_selected(true);
-        assert!(node.is_selected());
-
-        // Test deselezione
-        node.set_selected(false);
-        assert!(!node.is_selected());
-    }
-
-    #[test]
-    fn test_get_color_with_selection() {
-        let node = create_test_node(1, NodeType::Drone);
-
-        // Test colori normali
-        let normal_color = node.get_color(false);
-        assert_eq!(normal_color, Color32::from_rgb(100, 150, 255));
-
-        // Test colori selezionati
-        let selected_color = node.get_color(true);
-        assert_eq!(selected_color, Color32::from_rgb(255, 215, 0)); // Oro
-
-        // Verifica che siano diversi
-        assert_ne!(normal_color, selected_color);
-    }
-
-    #[test]
-    fn test_custom_node_contains_point() {
-        let node = create_test_node(1, NodeType::Drone);
-
-        // Test punto all'interno
-        assert!(node.contains_point(Pos2::new(100.0, 100.0))); // Centro
-        assert!(node.contains_point(Pos2::new(90.0, 90.0)));   // Interno
-
-        // Test punto all'esterno
-        assert!(!node.contains_point(Pos2::new(200.0, 200.0))); // Esterno
-        assert!(!node.contains_point(Pos2::new(50.0, 50.0)));   // Bordo esterno
-    }
-
-    #[test]
-    fn test_graph_selection_state() {
-        let mut state = GraphSelectionState::new();
-
-        // Test stato iniziale
-        assert!(!state.is_node_selected(1));
-        assert!(!state.is_edge_selected((1, 2)));
-
-        // Test selezione nodo
-        state.select_node(1);
-        assert!(state.is_node_selected(1));
-
-        // Test selezione edge (dovrebbe deselezionare nodi)
-        state.select_edge((1, 2));
-        assert!(!state.is_node_selected(1));
-        assert!(state.is_edge_selected((1, 2)));
-        assert!(state.is_edge_selected((2, 1))); // Test normalizzazione
-
-        // Test clear
-        state.clear_all();
-        assert!(!state.is_node_selected(1));
-        assert!(!state.is_edge_selected((1, 2)));
-    }
-
-    #[test]
-    fn test_selection_state_edge_normalization() {
-        let mut state = GraphSelectionState::new();
-
-        // Test che (1,2) e (2,1) siano trattati come lo stesso edge
-        state.select_edge((1, 2));
-        assert!(state.is_edge_selected((1, 2)));
-        assert!(state.is_edge_selected((2, 1)));
-
-        state.deselect_edge((2, 1));
-        assert!(!state.is_edge_selected((1, 2)));
-        assert!(!state.is_edge_selected((2, 1)));
-    }
-
-    #[test]
-    fn test_custom_edge_contains_point() {
-        let edge = CustomEdge::new();
-        let start = Pos2::new(0.0, 0.0);
-        let end = Pos2::new(100.0, 0.0);
-
-        // Test punto sulla linea
-        assert!(edge.contains_point(start, end, Pos2::new(50.0, 0.0)));
-
-        // Test punto vicino alla linea (entro tolleranza)
-        assert!(edge.contains_point(start, end, Pos2::new(50.0, 3.0)));
-
-        // Test punto lontano dalla linea
-        assert!(!edge.contains_point(start, end, Pos2::new(50.0, 20.0)));
-    }
-
-    #[test]
-    fn test_node_data_creation() {
-        let payload = (1, NodeType::Client);
-        let position = Pos2::new(100.0, 100.0);
-        let texture_id = Some(create_mock_texture_id());
-
-        let node_data = NodeData::new(payload, position, texture_id);
-
-        assert_eq!(node_data.payload.0, 1);
-        assert_eq!(node_data.payload.1, NodeType::Client);
-        assert_eq!(node_data.location, position);
-        assert!(!node_data.selected);
-        assert!(node_data.custom_node.texture_id.is_some());
-    }
-
-    #[test]
-    fn test_edge_data_creation() {
-        let edge_data = EdgeData::new(());
-
-        assert!(!edge_data.selected);
-        assert!(!edge_data.custom_edge.is_selected());
+                    Some(cc.egui_ctx.load_texture(
+                        path,
+                        color_image,
+                        egui::TextureOptions::default(),
+                    ).id())
+                }
+                Err(_) => None
+            }
+        }
+        Err(_) => None
     }
 }

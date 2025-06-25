@@ -12,27 +12,39 @@ use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp
 
 // TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
 // TODO: gentle crash
+
 fn main() -> eframe::Result {
+    // ✅ NUOVA PARTE: Gestisce argomenti da riga di comando
+    let args: Vec<String> = std::env::args().collect();
+    let config_path = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        "./target/debug/flypath crates/initializer/src/test_data/input1.toml".to_string()
+    };
+
+    println!("Caricando configurazione da: {}", config_path);
+
+    // ✅ MODIFICA: Passa il config_path a start()
     let (to_ui,
         from_ui,
         _handlers,
         button_sender,
-        graph_action_receiver,  
+        graph_action_receiver,
         message_receiver,
         client_state_receiver,
         connections,
-        nodes) = start().unwrap_or_else(|e| {
-        eprintln!("Errore durante l'avvio del sistema: {}", e);
+        nodes) = start(&config_path).unwrap_or_else(|e| {  // ← PASSA IL PARAMETRO
+        eprintln!("Errore durante l'avvio del sistema con config '{}': {}", config_path, e);
         process::exit(1);
     });
 
     let client_ui_state = _setup_ui_client_state(to_ui, from_ui);
-    
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([620.0, 540.0]),
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "FLYPATH",
         options,
