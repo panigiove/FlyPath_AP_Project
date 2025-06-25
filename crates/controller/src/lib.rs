@@ -1,14 +1,12 @@
-pub mod view {
-    pub mod graph;
-    pub mod buttons;
-    pub mod messages_view;
-    pub mod graph_components;
-}
+pub mod view;
 pub mod utility;
 pub mod controller_handler;
 pub mod controller_ui;
-pub use controller_ui::run_controller;
+mod drawable;
 
 // Re-export
 pub use view::graph::GraphApp;
 pub use utility::*;
+
+pub use crate::controller_ui::*;
+pub use drawable::{Drawable, PanelDrawable, PanelType, LayoutManager};

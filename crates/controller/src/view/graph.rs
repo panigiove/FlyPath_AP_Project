@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
-use egui::{Color32, TextureId};
+use egui::{Color32, TextureId, Pos2, Vec2, Rect};
+use petgraph::{Undirected, stable_graph::{NodeIndex, StableGraph}};
 use wg_2024::network::NodeId;
 use client::ui::UiState;
 use crate::utility::{ButtonsMessages, GraphAction, MessageType, NodeType};
@@ -11,54 +12,262 @@ use crate::NodeType::Client;
 
 type NodePayload = (NodeId, NodeType);
 
+// Struttura semplificata per i nodi visuali
+#[derive(Clone)]
+pub struct VisualNode {
+    pub id: NodeId,
+    pub node_type: NodeType,
+    pub position: Pos2,
+    pub size: Vec2,
+    pub selected: bool,
+}
+
+impl VisualNode {
+    pub fn new(id: NodeId, node_type: NodeType, position: Pos2) -> Self {
+        Self {
+            id,
+            node_type,
+            position,
+            size: Vec2::new(60.0, 60.0),
+            selected: false,
+        }
+    }
+
+    pub fn contains_point(&self, point: Pos2) -> bool {
+        let half_size = self.size / 2.0;
+        let min_pos = self.position - half_size;
+        let max_pos = self.position + half_size;
+
+        point.x >= min_pos.x && point.x <= max_pos.x &&
+            point.y >= min_pos.y && point.y <= max_pos.y
+    }
+
+    pub fn draw(&self, painter: &egui::Painter, texture_id: Option<TextureId>) {
+        let half_size = self.size / 2.0;
+        let min_pos = self.position - half_size;
+        let max_pos = self.position + half_size;
+        let rect = Rect::from_min_max(min_pos, max_pos);
+
+        // Aureola se selezionato
+        if self.selected {
+            let expanded_rect = Rect::from_min_max(
+                min_pos - Vec2::new(4.0, 4.0),
+                max_pos + Vec2::new(4.0, 4.0)
+            );
+            painter.rect_filled(expanded_rect, 8.0, Color32::from_rgba_unmultiplied(255, 215, 0, 100));
+        }
+
+        // Disegna texture o colore di fallback
+        if let Some(texture_id) = texture_id {
+            painter.image(
+                texture_id,
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE
+            );
+        } else {
+            // Colore di fallback basato sul tipo
+            let color = match self.node_type {
+                NodeType::Client => Color32::from_rgb(100, 200, 100),
+                NodeType::Drone => Color32::from_rgb(100, 150, 255),
+                NodeType::Server => Color32::from_rgb(255, 150, 100),
+            };
+            painter.rect_filled(rect, 6.0, color);
+        }
+
+        // Bordo
+        let border_color = if self.selected {
+            Color32::from_rgb(255, 215, 0)
+        } else {
+            Color32::BLACK
+        };
+        let stroke_width = if self.selected { 3.0 } else { 2.0 };
+        painter.rect_stroke(rect, 6.0, egui::Stroke::new(stroke_width, border_color));
+
+        // Label
+        let label = format!("{} {}",
+                            match self.node_type {
+                                NodeType::Client => "💻",
+                                NodeType::Drone => "🚁",
+                                NodeType::Server => "🖥️",
+                            },
+                            self.id
+        );
+
+        painter.text(
+            Pos2::new(self.position.x, max_pos.y + 15.0),
+            egui::Align2::CENTER_CENTER,
+            &label,
+            egui::FontId::default(),
+            if self.selected { Color32::from_rgb(255, 215, 0) } else { Color32::BLACK }
+        );
+    }
+}
+
+#[derive(Clone)]
+pub struct VisualEdge {
+    pub from_id: NodeId,
+    pub to_id: NodeId,
+    pub selected: bool,
+}
+
+impl VisualEdge {
+    pub fn new(from_id: NodeId, to_id: NodeId) -> Self {
+        Self {
+            from_id,
+            to_id,
+            selected: false,
+        }
+    }
+
+    pub fn draw(&self, painter: &egui::Painter, from_pos: Pos2, to_pos: Pos2) {
+        let color = if self.selected {
+            Color32::from_rgb(255, 215, 0)
+        } else {
+            Color32::from_rgb(100, 100, 100)
+        };
+
+        let width = if self.selected { 3.0 } else { 2.0 };
+
+        painter.line_segment(
+            [from_pos, to_pos],
+            egui::Stroke::new(width, color)
+        );
+    }
+
+    // Hit detection per edge
+    pub fn contains_point(&self, from_pos: Pos2, to_pos: Pos2, point: Pos2) -> bool {
+        // Calcola distanza dal punto alla linea
+        let line_vec = to_pos - from_pos;
+        let point_vec = point - from_pos;
+
+        if line_vec.length_sq() < f32::EPSILON {
+            return false;
+        }
+
+        let t = (point_vec.dot(line_vec) / line_vec.length_sq()).clamp(0.0, 1.0);
+        let projection = from_pos + t * line_vec;
+        let distance = (point - projection).length();
+
+        let tolerance = if self.selected { 8.0 } else { 5.0 };
+        distance < tolerance
+    }
+}
+
 pub struct GraphApp {
-    pub selected_node_id1: Option<NodeId>,
-    pub selected_node_id2: Option<NodeId>,
-    pub selected_edge: Option<(NodeId, NodeId)>,
+    // Dati del grafo (per la logica)
+    pub node_id_to_index: HashMap<NodeId, NodeIndex<u32>>,
+    pub index_to_node_id: HashMap<NodeIndex<u32>, NodeId>,
+    pub edges: Vec<(NodeId, NodeId)>,
+
+    // Nodi visuali (per il rendering)
+    pub visual_nodes: HashMap<NodeId, VisualNode>,
+    pub visual_edges: Vec<VisualEdge>,
+
+    // Texture per i nodi
     pub node_textures: HashMap<NodeType, TextureId>,
-
-    pub connection: HashMap<NodeId, Vec<NodeId>>,
-    pub node_types: HashMap<NodeId, NodeType>,
-
     pub client_ui_state: Arc<Mutex<UiState>>,
 
-    //CHANNELS
+    // Stato di selezione avanzato
+    pub selected_nodes: Vec<NodeId>,           // Massimo 2 nodi (FIFO)
+    pub selected_edge: Option<(NodeId, NodeId)>, // Edge selezionato (mutuamente esclusivo con nodi)
+
+    // CHANNELS (mantenuti per compatibilità)
     pub receiver_updates: Receiver<GraphAction>,
     pub sender_node_clicked: Sender<NodeId>,
     pub sender_edge_clicked: Sender<(NodeId, NodeId)>,
     pub reciver_buttom_messages: Receiver<ButtonsMessages>,
     pub sender_message_type: Sender<MessageType>,
-    pub client_state_receiver: Receiver<(NodeId, ClientState)>
+    pub client_state_receiver: Receiver<(NodeId, ClientState)>,
 }
 
 impl GraphApp {
-    pub fn new(cc: &eframe::CreationContext<'_>,
-               connection: HashMap<NodeId, Vec<NodeId>>,
-               node_types: HashMap<NodeId, NodeType>,
-               receiver_updates: Receiver<GraphAction>,
-               sender_node_clicked: Sender<NodeId>,
-               sender_edge_clicked: Sender<(NodeId, NodeId)>,
-               reciver_buttom_messages: Receiver<ButtonsMessages>,
-               sender_message_type: Sender<MessageType>,
-               client_ui_state: Arc<Mutex<UiState>>,
-               client_state_receiver: Receiver<(NodeId, ClientState)>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        connection: HashMap<NodeId, Vec<NodeId>>,
+        node_types: HashMap<NodeId, NodeType>,
+        receiver_updates: Receiver<GraphAction>,
+        sender_node_clicked: Sender<NodeId>,
+        sender_edge_clicked: Sender<(NodeId, NodeId)>,
+        reciver_buttom_messages: Receiver<ButtonsMessages>,
+        sender_message_type: Sender<MessageType>,
+        client_ui_state: Arc<Mutex<UiState>>,
+        client_state_receiver: Receiver<(NodeId, ClientState)>
+    ) -> Self {
+        // Carica le texture PNG
+        let node_textures = Self::load_node_textures(cc);
 
+        // Crea mapping per gli indici
+        let mut node_id_to_index = HashMap::new();
+        let mut index_to_node_id = HashMap::new();
+        let mut visual_nodes = HashMap::new();
+        let mut edges = Vec::new();
+        let mut visual_edges = Vec::new();
+
+        // Crea nodi visuali con posizioni automatiche in cerchio
+        let center = Pos2::new(400.0, 300.0);
+        let radius = 150.0;
+        let node_count = node_types.len();
+
+        for (i, (&node_id, &node_type)) in node_types.iter().enumerate() {
+            // Calcola posizione in cerchio
+            let angle = (i as f32 / node_count as f32) * 2.0 * std::f32::consts::PI;
+            let position = Pos2::new(
+                center.x + radius * angle.cos(),
+                center.y + radius * angle.sin()
+            );
+
+            // Aggiungi ai mapping
+            let node_index = NodeIndex::new(i);
+            node_id_to_index.insert(node_id, node_index);
+            index_to_node_id.insert(node_index, node_id);
+
+            // Crea nodo visuale
+            let visual_node = VisualNode::new(node_id, node_type, position);
+            visual_nodes.insert(node_id, visual_node);
+        }
+
+        // Crea edge
+        for (&node_id, connections) in &connection {
+            for &target_id in connections {
+                // Evita duplicati per grafo non-diretto
+                if node_id < target_id {
+                    edges.push((node_id, target_id));
+                    visual_edges.push(VisualEdge::new(node_id, target_id));
+                }
+            }
+        }
+
+        Self {
+            node_id_to_index,
+            index_to_node_id,
+            edges,
+            visual_nodes,
+            visual_edges,
+            node_textures,
+            client_ui_state,
+            selected_nodes: Vec::new(),
+            selected_edge: None,
+            receiver_updates,
+            sender_node_clicked,
+            sender_edge_clicked,
+            reciver_buttom_messages,
+            sender_message_type,
+            client_state_receiver,
+        }
+    }
+
+    fn load_node_textures(cc: &eframe::CreationContext<'_>) -> HashMap<NodeType, TextureId> {
         let mut node_textures = HashMap::new();
 
-        // CORREZIONE: Ricerca più estensiva dei file immagine
         println!("🔍 Tentativo caricamento texture...");
-        println!("🔍 Directory corrente: {:?}", std::env::current_dir());
 
-        // Lista di tutti i possibili percorsi basati su diverse strutture di progetto
         let possible_paths = [
-            // Percorsi relativi comuni
             ("controller/src/view/assets", vec!["client.png", "drone.png", "server.png"]),
             ("src/view/assets", vec!["client.png", "drone.png", "server.png"]),
             ("view/assets", vec!["client.png", "drone.png", "server.png"]),
             ("assets", vec!["client.png", "drone.png", "server.png"]),
-            // Percorsi con crates
             ("crates/controller/src/view/assets", vec!["client.png", "drone.png", "server.png"]),
-            // Percorsi assoluti dalla root del workspace
             ("./controller/src/view/assets", vec!["client.png", "drone.png", "server.png"]),
         ];
 
@@ -69,7 +278,6 @@ impl GraphApp {
             let image_name = image_names[i];
             let mut found_texture_id = None;
 
-            // Prova tutti i percorsi possibili
             for (base_path, _files) in &possible_paths {
                 let full_path = format!("{}/{}", base_path, image_name);
                 if std::path::Path::new(&full_path).exists() {
@@ -86,10 +294,6 @@ impl GraphApp {
                 },
                 None => {
                     println!("❌ Nessuna immagine trovata per {:?}", node_type);
-                    println!("   Percorsi tentati:");
-                    for (base_path, _) in &possible_paths {
-                        println!("     - {}/{}", base_path, image_name);
-                    }
                     println!("   Uso texture fallback distintiva");
                     create_distinctive_texture(cc, node_type)
                 }
@@ -99,28 +303,13 @@ impl GraphApp {
         }
 
         println!("✅ Texture caricate completate");
-
-        Self {
-            selected_node_id1: None,
-            selected_node_id2: None,
-            selected_edge: None,
-            node_textures,
-            client_ui_state,
-            connection,
-            node_types,
-            receiver_updates,
-            sender_node_clicked,
-            sender_edge_clicked,
-            reciver_buttom_messages,
-            sender_message_type,
-            client_state_receiver
-        }
+        node_textures
     }
 
     pub fn rebuild_visual_graph(&mut self) {
         println!("Graph updated with {} nodes and {} total connections",
-                 self.node_types.len(),
-                 self.connection.values().map(|v| v.len()).sum::<usize>() / 2);
+                 self.visual_nodes.len(),
+                 self.visual_edges.len());
     }
 
     pub fn graph_action_handler(&mut self, action: GraphAction) {
@@ -165,66 +354,121 @@ impl GraphApp {
 
     pub fn button_messages_handler(&mut self, message: ButtonsMessages) {
         match message {
-            ButtonsMessages::DeselectNode(_id) => {
-                self.selected_node_id1 = None;
-                self.selected_node_id2 = None;
-                self.selected_edge = None;
+            ButtonsMessages::DeselectNode(id) => {
+                self.deselect_node(id);
             }
             ButtonsMessages::MultipleSelectionAllowed => {
-                // Abilita la selezione multipla
+                // Già implementato - supporta fino a 2 nodi
             }
             ButtonsMessages::UpdateSelection(node1, node2) => {
-                self.selected_node_id1 = node1;
-                self.selected_node_id2 = node2;
-                if node1.is_some() || node2.is_some() {
-                    self.selected_edge = None;
+                self.clear_all_selections();
+                if let Some(node_id) = node1 {
+                    self.select_node(node_id);
+                }
+                if let Some(node_id) = node2 {
+                    self.select_node(node_id);
                 }
             }
             ButtonsMessages::ClearAllSelections => {
-                self.selected_node_id1 = None;
-                self.selected_node_id2 = None;
-                self.selected_edge = None;
+                self.clear_all_selections();
             }
         }
     }
 
-    fn handle_node_click(&mut self, node_id: NodeId) {
+    fn clear_all_selections(&mut self) {
+        // Deseleziona tutti i nodi
+        for node in self.visual_nodes.values_mut() {
+            node.selected = false;
+        }
+        // Deseleziona tutti gli edge
+        for edge in &mut self.visual_edges {
+            edge.selected = false;
+        }
+        self.selected_nodes.clear();
         self.selected_edge = None;
+    }
 
-        let is_already_selected = self.selected_node_id1 == Some(node_id) ||
-            self.selected_node_id2 == Some(node_id);
+    fn select_node(&mut self, node_id: NodeId) {
+        // Deseleziona eventuali edge (mutuamente esclusivo)
+        self.deselect_all_edges();
 
-        if is_already_selected {
-            self.selected_node_id1 = None;
-            self.selected_node_id2 = None;
-        } else {
-            match (self.selected_node_id1, self.selected_node_id2) {
-                (None, _) => self.selected_node_id1 = Some(node_id),
-                (Some(_), None) => self.selected_node_id2 = Some(node_id),
-                (Some(_), Some(_)) => {
-                    self.selected_node_id1 = Some(node_id);
-                    self.selected_node_id2 = None;
+        if let Some(node) = self.visual_nodes.get_mut(&node_id) {
+            node.selected = true;
+
+            // Gestisce la coda FIFO di massimo 2 nodi
+            if !self.selected_nodes.contains(&node_id) {
+                self.selected_nodes.push(node_id);
+
+                // Se supera il limite di 2, rimuovi il più vecchio
+                if self.selected_nodes.len() > 2 {
+                    let oldest_node = self.selected_nodes.remove(0);
+                    if let Some(old_node) = self.visual_nodes.get_mut(&oldest_node) {
+                        old_node.selected = false;
+                    }
                 }
             }
         }
     }
 
-    fn handle_edge_click(&mut self, edge: (NodeId, NodeId)) {
-        self.selected_node_id1 = None;
-        self.selected_node_id2 = None;
-
-        if self.selected_edge == Some(edge) || self.selected_edge == Some((edge.1, edge.0)) {
-            self.selected_edge = None;
-        } else {
-            self.selected_edge = Some(edge);
+    fn deselect_node(&mut self, node_id: NodeId) {
+        if let Some(node) = self.visual_nodes.get_mut(&node_id) {
+            node.selected = false;
         }
+        self.selected_nodes.retain(|&id| id != node_id);
+    }
 
-        println!("Edge cliccato: {:?}", edge);
+    fn toggle_node_selection(&mut self, node_id: NodeId) {
+        if self.selected_nodes.contains(&node_id) {
+            self.deselect_node(node_id);
+        } else {
+            self.select_node(node_id);
+        }
+    }
+
+    fn select_edge(&mut self, edge_index: usize) {
+        // Deseleziona tutti i nodi (mutuamente esclusivo)
+        self.deselect_all_nodes();
+
+        if let Some(edge) = self.visual_edges.get_mut(edge_index) {
+            edge.selected = true;
+            self.selected_edge = Some((edge.from_id, edge.to_id));
+        }
+    }
+
+    fn deselect_edge(&mut self, edge_index: usize) {
+        if let Some(edge) = self.visual_edges.get_mut(edge_index) {
+            edge.selected = false;
+        }
+        self.selected_edge = None;
+    }
+
+    fn toggle_edge_selection(&mut self, edge_index: usize) {
+        if let Some(edge) = self.visual_edges.get(edge_index) {
+            if edge.selected {
+                self.deselect_edge(edge_index);
+            } else {
+                self.select_edge(edge_index);
+            }
+        }
+    }
+
+    fn deselect_all_nodes(&mut self) {
+        for node in self.visual_nodes.values_mut() {
+            node.selected = false;
+        }
+        self.selected_nodes.clear();
+    }
+
+    fn deselect_all_edges(&mut self) {
+        for edge in &mut self.visual_edges {
+            edge.selected = false;
+        }
+        self.selected_edge = None;
     }
 
     fn get_next_node_id(&self) -> NodeId {
         let mut max_id = 0;
-        for &node_id in self.node_types.keys() {
+        for &node_id in self.visual_nodes.keys() {
             if node_id > max_id {
                 max_id = node_id;
             }
@@ -233,430 +477,396 @@ impl GraphApp {
     }
 
     pub fn add_node(&mut self, new_node_id: NodeId, node_type: NodeType) -> Result<(), String> {
-        if self.node_types.contains_key(&new_node_id) {
+        if self.visual_nodes.contains_key(&new_node_id) {
             return Err(format!("Node with ID {} already exists", new_node_id));
         }
-        if self.node_types.get(&new_node_id) == Some(&Client){
-            if let Ok(command) = self.client_state_receiver.try_recv() {
+
+        // Gestione client state (mantenuta dal codice originale)
+        if node_type == Client {
+            if let Ok(_command) = self.client_state_receiver.try_recv() {
                 match self.client_ui_state.lock() {
                     Ok(mut state) => {
-                        if let Some((id, client_state)) = self.client_state_receiver.try_recv(){
-                            state.add_client(id, client_state)
+                        if let Ok((id, client_state)) = self.client_state_receiver.try_recv() {
+                            state.add_client(id, client_state);
                         }
                     }
-                    Err(poisoned) => {
-                        eprintln!("Error: Mutex is poisoned")
+                    Err(_poisoned) => {
+                        eprintln!("Error: Mutex is poisoned");
                     }
                 }
             }
         }
 
-        self.node_types.insert(new_node_id, node_type);
+        // Calcola posizione per il nuovo nodo (posizionamento casuale migliorabile)
+        let position = Pos2::new(
+            300.0 + (new_node_id as f32 * 50.0) % 400.0,
+            200.0 + (new_node_id as f32 * 30.0) % 300.0
+        );
 
-        if !self.connection.contains_key(&new_node_id) {
-            self.connection.insert(new_node_id, Vec::new());
-        }
+        // Crea nodo visuale
+        let visual_node = VisualNode::new(new_node_id, node_type, position);
+        self.visual_nodes.insert(new_node_id, visual_node);
+
+        // Aggiungi ai mapping
+        let node_index = NodeIndex::new(self.node_id_to_index.len());
+        self.node_id_to_index.insert(new_node_id, node_index);
+        self.index_to_node_id.insert(node_index, new_node_id);
 
         println!("Added node: ID={}, Type={:?}", new_node_id, node_type);
         Ok(())
     }
 
     pub fn remove_node(&mut self, node_id: NodeId) -> Result<(), String> {
-        if !self.node_types.contains_key(&node_id) {
+        if !self.visual_nodes.contains_key(&node_id) {
             return Err(format!("Node with ID {} not found", node_id));
         }
 
-        let _ = self.remove_all_edges(node_id)?;
+        // Rimuovi il nodo visuale
+        self.visual_nodes.remove(&node_id);
 
-        self.node_types.remove(&node_id);
-        self.connection.remove(&node_id);
-
-        if self.selected_node_id1 == Some(node_id) {
-            self.selected_node_id1 = None;
-        }
-        if self.selected_node_id2 == Some(node_id) {
-            self.selected_node_id2 = None;
+        // Rimuovi dai mapping
+        if let Some(node_index) = self.node_id_to_index.remove(&node_id) {
+            self.index_to_node_id.remove(&node_index);
         }
 
-        if let Some((id1, id2)) = self.selected_edge {
-            if id1 == node_id || id2 == node_id {
-                self.selected_edge = None;
-            }
-        }
+        // Rimuovi tutti gli edge connessi a questo nodo
+        self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
+        self.visual_edges.retain(|edge| edge.from_id != node_id && edge.to_id != node_id);
+
+        // Deseleziona se era selezionato
+        self.deselect_node(node_id);
 
         println!("Removed node {}", node_id);
         Ok(())
     }
 
     pub fn add_edge(&mut self, id1: NodeId, id2: NodeId) -> Result<(), String> {
-        if !self.node_types.contains_key(&id1) {
+        if !self.visual_nodes.contains_key(&id1) {
             return Err(format!("Node with ID {} not found", id1));
         }
-        if !self.node_types.contains_key(&id2) {
+        if !self.visual_nodes.contains_key(&id2) {
             return Err(format!("Node with ID {} not found", id2));
         }
-
         if id1 == id2 {
             return Err("Cannot create edge to the same node (self-loop)".to_string());
         }
 
-        if let Some(connections) = self.connection.get(&id1) {
-            if connections.contains(&id2) {
-                return Err(format!("Edge between {} and {} already exists", id1, id2));
-            }
+        // Controlla se l'edge esiste già
+        let edge_exists = self.edges.iter().any(|(from, to)|
+            (*from == id1 && *to == id2) || (*from == id2 && *to == id1)
+        );
+
+        if edge_exists {
+            return Err(format!("Edge between {} and {} already exists", id1, id2));
         }
-        
-        self.connection.entry(id1).or_insert_with(Vec::new).push(id2);
-        self.connection.entry(id2).or_insert_with(Vec::new).push(id1);
+
+        // Aggiungi l'edge (normalizza sempre con il minor ID per primo)
+        let (from, to) = if id1 < id2 { (id1, id2) } else { (id2, id1) };
+        self.edges.push((from, to));
+        self.visual_edges.push(VisualEdge::new(from, to));
 
         println!("Added edge between nodes {} and {}", id1, id2);
         Ok(())
     }
 
     pub fn remove_edge(&mut self, id1: NodeId, id2: NodeId) -> Result<(), String> {
-        if !self.node_types.contains_key(&id1) {
-            return Err(format!("Node with ID {} not found", id1));
-        }
-        if !self.node_types.contains_key(&id2) {
-            return Err(format!("Node with ID {} not found", id2));
-        }
+        let edge_removed = self.edges.iter().position(|(from, to)|
+            (*from == id1 && *to == id2) || (*from == id2 && *to == id1)
+        );
 
-        let edge_exists = if let Some(connections) = self.connection.get(&id1) {
-            connections.contains(&id2)
+        if let Some(index) = edge_removed {
+            self.edges.remove(index);
+            self.visual_edges.remove(index);
+
+            // Deseleziona se era selezionato
+            if self.selected_edge == Some((id1, id2)) || self.selected_edge == Some((id2, id1)) {
+                self.selected_edge = None;
+            }
+
+            println!("Removed edge between nodes {} and {}", id1, id2);
+            Ok(())
         } else {
-            false
-        };
-
-        if !edge_exists {
-            return Err(format!("Edge between {} and {} does not exist", id1, id2));
+            Err(format!("Edge between {} and {} does not exist", id1, id2))
         }
-
-        if let Some(connections) = self.connection.get_mut(&id1) {
-            connections.retain(|&x| x != id2);
-        }
-
-        if let Some(connections) = self.connection.get_mut(&id2) {
-            connections.retain(|&x| x != id1);
-        }
-
-        if self.selected_edge == Some((id1, id2)) || self.selected_edge == Some((id2, id1)) {
-            self.selected_edge = None;
-        }
-
-        println!("Removed edge between nodes {} and {}", id1, id2);
-        Ok(())
     }
 
     pub fn remove_all_edges(&mut self, node_id: NodeId) -> Result<usize, String> {
-        if !self.node_types.contains_key(&node_id) {
+        if !self.visual_nodes.contains_key(&node_id) {
             return Err(format!("Node with ID {} not found", node_id));
         }
 
-        let mut removed_count = 0;
-        let connections_to_remove: Vec<NodeId> = if let Some(connections) = self.connection.get(&node_id) {
-            connections.clone()
-        } else {
-            Vec::new()
-        };
+        let initial_count = self.edges.len();
 
-        for connected_id in connections_to_remove {
-            if self.remove_edge(node_id, connected_id).is_ok() {
-                removed_count += 1;
-            }
-        }
+        // Rimuovi tutti gli edge connessi al nodo
+        self.edges.retain(|(from, to)| *from != node_id && *to != node_id);
+        self.visual_edges.retain(|edge| edge.from_id != node_id && edge.to_id != node_id);
 
+        let removed_count = initial_count - self.edges.len();
+
+        println!("Removed {} edges for node {}", removed_count, node_id);
         Ok(removed_count)
     }
 
-    fn draw_custom_graph(&mut self, ui: &mut egui::Ui) {
-        let (rect, response) = ui.allocate_exact_size(
-            egui::Vec2::new(600.0, 400.0),
-            egui::Sense::click()
-        );
+    fn get_selected_nodes_info(&self) -> Vec<(NodeId, NodeType)> {
+        self.selected_nodes.iter()
+            .filter_map(|&node_id| {
+                self.visual_nodes.get(&node_id)
+                    .map(|node| (node.id, node.node_type))
+            })
+            .collect()
+    }
 
-        if ui.is_rect_visible(rect) {
-            let painter = ui.painter_at(rect);
-
-            let get_node_color = |node_type: NodeType, is_selected: bool| -> Color32 {
-                if is_selected {
-                    Color32::from_rgb(255, 215, 0) // Oro quando selezionato
-                } else {
-                    match node_type {
-                        NodeType::Client => Color32::from_rgb(100, 200, 100),
-                        NodeType::Drone => Color32::from_rgb(100, 150, 255),
-                        NodeType::Server => Color32::from_rgb(255, 150, 100),
-                    }
-                }
-            };
-
-            let get_edge_color = |edge: (NodeId, NodeId)| -> Color32 {
-                if self.selected_edge == Some(edge) || self.selected_edge == Some((edge.1, edge.0)) {
-                    Color32::from_rgb(255, 215, 0) // Oro quando selezionato
-                } else {
-                    Color32::from_rgb(150, 150, 150) // Grigio normale
-                }
-            };
-
-            let center = rect.center();
-            let radius = 150.0;
-            let node_count = self.node_types.len();
-
-            let mut node_positions = HashMap::new();
-            let mut edge_segments = Vec::new();
-
-            if node_count > 0 {
-                for (i, (&node_id, &_node_type)) in self.node_types.iter().enumerate() {
-                    let angle = (i as f32 / node_count as f32) * 2.0 * std::f32::consts::PI;
-                    let pos = egui::Pos2::new(
-                        center.x + radius * angle.cos(),
-                        center.y + radius * angle.sin()
-                    );
-                    node_positions.insert(node_id, pos);
-                }
-
-                // Disegna gli edge
-                for (&id1, connections) in &self.connection {
-                    if let Some(&pos1) = node_positions.get(&id1) {
-                        for &id2 in connections {
-                            if let Some(&pos2) = node_positions.get(&id2) {
-                                if id1 < id2 {
-                                    let node_radius = 25.0;
-                                    let direction = (pos2 - pos1).normalized();
-                                    let start_pos = pos1 + direction * node_radius;
-                                    let end_pos = pos2 - direction * node_radius;
-
-                                    let edge_color = get_edge_color((id1, id2));
-                                    let stroke_width = if self.selected_edge == Some((id1, id2)) ||
-                                        self.selected_edge == Some((id2, id1)) {
-                                        4.0
-                                    } else {
-                                        2.0
-                                    };
-
-                                    painter.line_segment(
-                                        [start_pos, end_pos],
-                                        egui::Stroke::new(stroke_width, edge_color)
-                                    );
-
-                                    edge_segments.push((id1, id2, start_pos, end_pos));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Disegna i nodi
-                for (i, (&node_id, &node_type)) in self.node_types.iter().enumerate() {
-                    let angle = (i as f32 / node_count as f32) * 2.0 * std::f32::consts::PI;
-                    let pos = egui::Pos2::new(
-                        center.x + radius * angle.cos(),
-                        center.y + radius * angle.sin()
-                    );
-
-                    let node_radius = 25.0;
-                    let is_selected = self.selected_node_id1 == Some(node_id) ||
-                        self.selected_node_id2 == Some(node_id);
-
-                    // CORREZIONE: Usa sempre le texture, anche se sono fallback
-                    if let Some(&texture_id) = self.node_textures.get(&node_type) {
-                        let image_size = 50.0;
-                        let image_rect = egui::Rect::from_center_size(pos, egui::Vec2::splat(image_size));
-
-                        // Aureola quando selezionato
-                        if is_selected {
-                            painter.rect_filled(
-                                image_rect.expand(4.0),
-                                8.0,
-                                Color32::from_rgba_unmultiplied(255, 215, 0, 200)
-                            );
-                        }
-
-                        // Disegna la texture (anche se è una texture fallback)
-                        painter.image(
-                            texture_id,
-                            image_rect,
-                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
-                            Color32::WHITE
-                        );
-
-                        // Bordo
-                        let border_color = if is_selected { Color32::from_rgb(255, 215, 0) } else { Color32::BLACK };
-                        painter.rect_stroke(image_rect, 6.0, egui::Stroke::new(2.0, border_color));
-                    } else {
-                        // Fallback estremo: cerchio colorato
-                        let node_color = get_node_color(node_type, is_selected);
-                        if is_selected {
-                            painter.circle_filled(pos, node_radius + 3.0, Color32::from_rgb(255, 215, 0));
-                        }
-                        painter.circle_filled(pos, node_radius, node_color);
-                        painter.circle_stroke(pos, node_radius, egui::Stroke::new(2.0, Color32::BLACK));
-                    }
-
-                    // Testo del nodo
-                    let text_pos = egui::Pos2::new(pos.x, pos.y + 35.0);
-                    let text = format!("{}\n{:?}", node_id, node_type);
-                    painter.text(
-                        text_pos,
-                        egui::Align2::CENTER_CENTER,
-                        text,
-                        egui::FontId::default(),
-                        Color32::WHITE,
-                    );
-                }
+    fn get_selected_edge_info(&self) -> Option<((NodeId, NodeId), (NodeType, NodeType))> {
+        if let Some((id1, id2)) = self.selected_edge {
+            if let (Some(node1), Some(node2)) = (
+                self.visual_nodes.get(&id1),
+                self.visual_nodes.get(&id2)
+            ) {
+                return Some(((id1, id2), (node1.node_type, node2.node_type)));
             }
+        }
+        None
+    }
 
-            // Gestione click
-            if response.clicked() {
-                if let Some(click_pos) = response.interact_pointer_pos() {
-                    let mut clicked_something = false;
+    fn get_node_connections(&self, node_id: NodeId) -> Vec<NodeId> {
+        self.edges.iter()
+            .filter_map(|(from, to)| {
+                if *from == node_id {
+                    Some(*to)
+                } else if *to == node_id {
+                    Some(*from)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 
-                    let mut closest_node = None;
-                    let mut closest_node_distance = f32::MAX;
+    fn handle_graph_click(&mut self, click_pos: Pos2) {
+        // Prima raccoglie gli ID senza modificare nulla (borrow immutabile)
+        let mut clicked_node: Option<NodeId> = None;
+        let mut clicked_edge: Option<usize> = None;
 
-                    for (&node_id, &pos) in &node_positions {
-                        let distance = (click_pos - pos).length();
-                        if distance < 30.0 && distance < closest_node_distance {
-                            closest_node_distance = distance;
-                            closest_node = Some(node_id);
-                        }
-                    }
+        // PRIORITÀ 1: Controllo nodi
+        for (node_id, node) in &self.visual_nodes {
+            if node.contains_point(click_pos) {
+                clicked_node = Some(*node_id);
+                break;
+            }
+        }
 
-                    if let Some(clicked_node_id) = closest_node {
-                        self.handle_node_click(clicked_node_id);
-
-                        if let Err(e) = self.sender_node_clicked.send(clicked_node_id) {
-                            println!("Errore nell'invio node_clicked: {}", e);
-                        }
-
-                        clicked_something = true;
-                    } else {
-                        let mut closest_edge = None;
-                        let mut closest_edge_distance = f32::MAX;
-
-                        for &(id1, id2, start_pos, end_pos) in &edge_segments {
-                            let distance = distance_point_to_line(click_pos, start_pos, end_pos);
-                            if distance < 8.0 && distance < closest_edge_distance {
-                                closest_edge_distance = distance;
-                                closest_edge = Some((id1, id2));
-                            }
-                        }
-
-                        if let Some(clicked_edge) = closest_edge {
-                            self.handle_edge_click(clicked_edge);
-
-                            if let Err(e) = self.sender_edge_clicked.send(clicked_edge) {
-                                println!("Errore nell'invio edge_clicked: {}", e);
-                            }
-
-                            clicked_something = true;
-                        }
-                    }
-
-                    if !clicked_something {
-                        self.selected_node_id1 = None;
-                        self.selected_node_id2 = None;
-                        self.selected_edge = None;
+        // PRIORITÀ 2: Controllo edge (solo se non ha cliccato nodi)
+        if clicked_node.is_none() {
+            for (edge_index, edge) in self.visual_edges.iter().enumerate() {
+                if let (Some(from_node), Some(to_node)) = (
+                    self.visual_nodes.get(&edge.from_id),
+                    self.visual_nodes.get(&edge.to_id)
+                ) {
+                    if edge.contains_point(from_node.position, to_node.position, click_pos) {
+                        clicked_edge = Some(edge_index);
+                        break;
                     }
                 }
             }
         }
 
-        ui.separator();
-        ui.label("🖱️ Clicca sui NODI per selezionarli");
-        ui.label("🔗 Clicca sugli EDGE per selezionarli");
-        ui.label("💻 Client | 🚁 Drone | 🖥️ Server");
-        if self.selected_node_id1.is_some() || self.selected_edge.is_some() {
-            ui.label("💡 Clicca sullo sfondo per deselezionare tutto");
+        // Ora modifica lo stato (borrow mutabile)
+        if let Some(node_id) = clicked_node {
+            self.toggle_node_selection(node_id);
+
+            // Invia evento
+            if let Err(e) = self.sender_node_clicked.send(node_id) {
+                println!("Errore nell'invio node_clicked: {}", e);
+            }
+        } else if let Some(edge_index) = clicked_edge {
+            self.toggle_edge_selection(edge_index);
+
+            // Invia evento
+            if let Some(edge) = self.visual_edges.get(edge_index) {
+                if let Err(e) = self.sender_edge_clicked.send((edge.from_id, edge.to_id)) {
+                    println!("Errore nell'invio edge_clicked: {}", e);
+                }
+            }
+        } else {
+            // Click su sfondo = deseleziona tutto
+            self.clear_all_selections();
         }
     }
-}
 
-fn distance_point_to_line(point: egui::Pos2, line_start: egui::Pos2, line_end: egui::Pos2) -> f32 {
-    let line_vec = line_end - line_start;
-    let point_vec = point - line_start;
-
-    if line_vec.length_sq() < f32::EPSILON {
-        return (point - line_start).length();
+    fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
+        // Gestione tasto ESC per deselezionare tutto
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.clear_all_selections();
+            println!("ESC pressed - deselezionato tutto");
+        }
     }
-
-    let t = (point_vec.dot(line_vec) / line_vec.length_sq()).clamp(0.0, 1.0);
-    let projection = line_start + t * line_vec;
-    (point - projection).length()
 }
 
 impl eframe::App for GraphApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Gestisce input da tastiera (ESC per deselezionare tutto)
+        self.handle_keyboard_input(ctx);
+
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::SidePanel::left("info_panel")
                 .resizable(true)
-                .default_width(200.0)
+                .default_width(250.0)
                 .show_inside(ui, |ui| {
-                    ui.heading("Info Grafo");
+                    ui.heading("📊 Info Grafo");
                     ui.separator();
 
-                    ui.label(format!("Nodi totali: {}", self.node_types.len()));
-                    ui.label(format!("Collegamenti: {}", self.connection.values().map(|v| v.len()).sum::<usize>() / 2));
+                    ui.label(format!("Nodi totali: {}", self.visual_nodes.len()));
+                    ui.label(format!("Collegamenti: {}", self.visual_edges.len()));
 
                     ui.separator();
 
-                    if let Some(selected_node_id) = self.selected_node_id1 {
-                        if let Some(&node_type) = self.node_types.get(&selected_node_id) {
-                            ui.heading("🔵 Nodo Selezionato");
-                            ui.label(format!("ID: {}", selected_node_id));
-                            ui.label(format!("Tipo: {:?}", node_type));
+                    // Info nodi selezionati (massimo 2)
+                    let selected_nodes = self.get_selected_nodes_info();
+                    if !selected_nodes.is_empty() {
+                        ui.heading("🔵 Nodi Selezionati");
+                        for (i, (node_id, node_type)) in selected_nodes.iter().enumerate() {
+                            ui.label(format!("Nodo {}: ID={}, Tipo={:?}", i + 1, node_id, node_type));
 
-                            if let Some(connections) = self.connection.get(&selected_node_id) {
-                                ui.label(format!("Connesso a: {:?}", connections));
-                            }
+                            let connections = self.get_node_connections(*node_id);
+                            ui.label(format!("  Connesso a: {:?}", connections));
+                        }
 
-                            if ui.button("Deseleziona Nodo").clicked() {
-                                self.selected_node_id1 = None;
-                                self.selected_node_id2 = None;
-                            }
+                        if ui.button("Deseleziona Nodi").clicked() {
+                            self.deselect_all_nodes();
                         }
                     }
 
-                    if let Some((id1, id2)) = self.selected_edge {
+                    // Info edge selezionato
+                    if let Some(((id1, id2), (type1, type2))) = self.get_selected_edge_info() {
                         ui.separator();
                         ui.heading("🔗 Edge Selezionato");
                         ui.label(format!("Connessione: {} ↔ {}", id1, id2));
-
-                        if let (Some(&type1), Some(&type2)) = (self.node_types.get(&id1), self.node_types.get(&id2)) {
-                            ui.label(format!("Tipo: {:?} ↔ {:?}", type1, type2));
-                        }
+                        ui.label(format!("Tipo: {:?} ↔ {:?}", type1, type2));
 
                         if ui.button("Deseleziona Edge").clicked() {
-                            self.selected_edge = None;
+                            self.deselect_all_edges();
                         }
                     }
 
-                    if self.selected_node_id1.is_none() && self.selected_edge.is_none() {
+                    if selected_nodes.is_empty() && self.get_selected_edge_info().is_none() {
                         ui.label("Nessuna selezione");
-                        ui.label("Clicca su un nodo o edge per selezionarlo");
+                        ui.label("Clicca su nodi o edge per selezionarli");
                     }
 
                     ui.separator();
 
-                    if !self.node_types.is_empty() {
+                    // Regole di selezione
+                    ui.label("📋 Regole di Selezione:");
+                    ui.label("• Massimo 2 nodi contemporaneamente");
+                    ui.label("• Click su elemento selezionato = deseleziona");
+                    ui.label("• Nodi ed edge sono mutuamente esclusivi");
+                    ui.label("• ESC = deseleziona tutto");
+
+                    ui.separator();
+
+                    // Statistiche tipi di nodi
+                    if !self.visual_nodes.is_empty() {
                         ui.label("Tipi di nodi presenti:");
-                        for node_type in [NodeType::Client, NodeType::Drone, NodeType::Server] {
-                            let count = self.node_types.values().filter(|&&nt| nt == node_type).count();
-                            if count > 0 {
-                                ui.label(format!("{:?}: {}", node_type, count));
-                            }
+                        let mut type_counts = HashMap::new();
+                        for node in self.visual_nodes.values() {
+                            *type_counts.entry(node.node_type).or_insert(0) += 1;
                         }
+
+                        for (node_type, count) in type_counts {
+                            let icon = match node_type {
+                                NodeType::Client => "💻",
+                                NodeType::Drone => "🚁",
+                                NodeType::Server => "🖥️",
+                            };
+                            ui.label(format!("{} {:?}: {}", icon, node_type, count));
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("🎨 Texture PNG caricate:");
+                    for (node_type, _texture_id) in &self.node_textures {
+                        ui.label(format!("✅ {:?}.png", node_type));
                     }
                 });
 
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                ui.heading("Grafo di Rete");
-                self.draw_custom_graph(ui);
+                ui.heading("🌐 Grafo di Rete");
+
+                // Area per disegnare il grafo
+                let desired_size = ui.available_size();
+                let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+                if ui.is_rect_visible(rect) {
+                    // Disegna lo sfondo
+                    ui.painter().rect_filled(rect, 5.0, egui::Color32::from_gray(250));
+
+                    // Disegna griglia di sfondo (opzionale)
+                    let grid_spacing = 50.0;
+                    let mut x = rect.min.x;
+                    while x < rect.max.x {
+                        ui.painter().vline(x, rect.min.y..=rect.max.y,
+                                           egui::Stroke::new(0.5, egui::Color32::from_gray(230)));
+                        x += grid_spacing;
+                    }
+                    let mut y = rect.min.y;
+                    while y < rect.max.y {
+                        ui.painter().hline(rect.min.x..=rect.max.x, y,
+                                           egui::Stroke::new(0.5, egui::Color32::from_gray(230)));
+                        y += grid_spacing;
+                    }
+
+                    // Disegna gli edge prima dei nodi (così i nodi appaiono sopra)
+                    for edge in &self.visual_edges {
+                        if let (Some(from_node), Some(to_node)) = (
+                            self.visual_nodes.get(&edge.from_id),
+                            self.visual_nodes.get(&edge.to_id)
+                        ) {
+                            edge.draw(ui.painter(), from_node.position, to_node.position);
+                        }
+                    }
+
+                    // Disegna i nodi con le texture PNG
+                    for node in self.visual_nodes.values() {
+                        let texture_id = self.node_textures.get(&node.node_type).copied();
+                        node.draw(ui.painter(), texture_id);
+                    }
+                }
+
+                // Gestisce i click
+                if response.clicked() {
+                    if let Some(click_pos) = response.interact_pointer_pos() {
+                        // Le coordinate sono già relative al widget, possiamo usarle direttamente
+                        self.handle_graph_click(click_pos);
+                    }
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("🖱️ Click: seleziona/deseleziona nodi ed edge");
+                    ui.separator();
+                    ui.label("⌨️ ESC: deseleziona tutto");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("🎯 Massimo 2 nodi o 1 edge alla volta");
+                    ui.separator();
+                    ui.label("🎨 Texture PNG per i nodi");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("💻 Client");
+                    ui.separator();
+                    ui.label("🚁 Drone");
+                    ui.separator();
+                    ui.label("🖥️ Server");
+                });
             });
         });
     }
 }
 
-// CORREZIONE: Funzione migliorata per caricare file immagine
+// *** FUNZIONI DI UTILITÀ PER LE TEXTURE (mantenute dal codice originale) ***
+
 fn load_texture_from_file(cc: &eframe::CreationContext<'_>, path: &str) -> TextureId {
     match std::fs::read(path) {
         Ok(image_data) => {
@@ -690,17 +900,14 @@ fn load_texture_from_file(cc: &eframe::CreationContext<'_>, path: &str) -> Textu
     }
 }
 
-// CORREZIONE: Crea texture distintive per ogni tipo di nodo
 fn create_distinctive_texture(cc: &eframe::CreationContext<'_>, node_type: NodeType) -> TextureId {
     let size = 64;
     let mut pixels = Vec::new();
 
-    // Crea pattern diversi per ogni tipo di nodo invece di colori solidi
     for y in 0..size {
         for x in 0..size {
             let color = match node_type {
                 NodeType::Client => {
-                    // Pattern a scacchiera verde
                     if (x + y) % 8 < 4 {
                         Color32::from_rgb(100, 200, 100)
                     } else {
@@ -708,7 +915,6 @@ fn create_distinctive_texture(cc: &eframe::CreationContext<'_>, node_type: NodeT
                     }
                 }
                 NodeType::Drone => {
-                    // Pattern circolare blu
                     let center_x = size as f32 / 2.0;
                     let center_y = size as f32 / 2.0;
                     let distance = ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
@@ -719,7 +925,6 @@ fn create_distinctive_texture(cc: &eframe::CreationContext<'_>, node_type: NodeT
                     }
                 }
                 NodeType::Server => {
-                    // Pattern a righe arancione
                     if y % 4 < 2 {
                         Color32::from_rgb(255, 150, 100)
                     } else {
@@ -743,10 +948,9 @@ fn create_distinctive_texture(cc: &eframe::CreationContext<'_>, node_type: NodeT
     ).id()
 }
 
-// Fallback generico
 fn create_fallback_texture(cc: &eframe::CreationContext<'_>, name: &str) -> TextureId {
     let size = 64;
-    let pixels = vec![Color32::from_rgb(128, 128, 128); size * size]; // Grigio neutro
+    let pixels = vec![Color32::from_rgb(128, 128, 128); size * size];
 
     let color_image = egui::ColorImage {
         size: [size, size],
@@ -758,4 +962,20 @@ fn create_fallback_texture(cc: &eframe::CreationContext<'_>, name: &str) -> Text
         color_image,
         egui::TextureOptions::default(),
     ).id()
+}
+
+
+impl GraphApp {
+    /// Gestisce gli eventi pending senza loop infinito (per integrazione UI)
+    pub fn handle_pending_events(&mut self) {
+        // Gestisce GraphAction dal backend
+        if let Ok(command) = self.receiver_updates.try_recv() {
+            self.graph_action_handler(command);
+        }
+
+        // Gestisce ButtonsMessages 
+        if let Ok(command) = self.reciver_buttom_messages.try_recv() {
+            self.button_messages_handler(command);
+        }
+    }
 }
