@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
-use egui::{TextureId, Pos2, Vec2};
+use egui::{TextureId, Pos2, Vec2, RichText, Color32};
 use petgraph::stable_graph::NodeIndex;
 use wg_2024::network::NodeId;
 use client::ui::UiState;
@@ -433,7 +433,11 @@ impl eframe::App for GraphApp {
         self.handle_keyboard_input(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Network Graph");
+            ui.label(
+                RichText::new("Network Graph")
+                    .heading()
+                    .color(Color32::from_rgb(14,137,146))
+            );
 
             // Debug: stampa tutte le texture caricate
             for (node_type, tex_id) in &self.node_textures {
@@ -468,9 +472,9 @@ impl eframe::App for GraphApp {
                 for node in self.nodes.values() {
                     // Debug: verifica se il nodo ha una texture
                     if let Some(tex_id) = node.texture_id {
-                        
+
                     } else {
-                        
+
                     }
                     node.draw(ui.painter());
                 }

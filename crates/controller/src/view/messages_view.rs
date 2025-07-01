@@ -1,5 +1,5 @@
 use crossbeam_channel::Receiver;
-use egui::RichText;
+use egui::{Color32, RichText};
 use crate::utility::MessageType;
 
 // NUOVO IMPORT
@@ -41,9 +41,13 @@ impl Drawable for MessagesWindow {
     fn render(&mut self, ui: &mut egui::Ui) {
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            ui.heading("Messages");
+            ui.label(
+                RichText::new("Messages")
+                    .heading()
+                    .color(Color32::from_rgb(14,137,146))
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("🗑️ Clear").clicked() {
+                if ui.button("Clear").clicked() {
                     self.log.clear();
                 }
                 ui.checkbox(&mut self.auto_scroll, "Auto-scroll");

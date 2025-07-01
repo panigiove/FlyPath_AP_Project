@@ -113,36 +113,95 @@ impl ControllerHandler {
         }
     }
 
+    // ✅ FIX FINALE: Loop principale con priorità e fix borrowing
     pub fn run(&mut self) {
         loop {
-            // Process drone events
-            let drone_node_ids: Vec<NodeId> = self.receiver_event.keys().copied().collect();
-            for node_id in drone_node_ids {
-                if let Some(receiver) = self.receiver_event.get(&node_id) {
-                    if let Ok(event) = receiver.try_recv() {
-                        self.handle_drone_event(event, node_id);
-                    }
-                }
-            }
-
-            // Process node events
-            let node_node_ids: Vec<NodeId> = self.receriver_node_event.keys().copied().collect();
-            for node_id in node_node_ids {
-                if let Some(receiver) = self.receriver_node_event.get(&node_id) {
-                    if let Ok(event) = receiver.try_recv() {
-                        self.handle_node_event(event, node_id);
-                    }
-                }
-            }
-
-            // Process button events
-            if let Ok(command) = self.button_receiver.try_recv() {
+            // ✅ PRIORITÀ 1: Process button events PRIMA di tutto
+            let mut button_events_processed = 0;
+            while let Ok(command) = self.button_receiver.try_recv() {
                 println!("🟢 ControllerHandler: Received button event: {:?}", command);
                 self.handle_button_event(command);
+                button_events_processed += 1;
+
+                // Limite per evitare loop infiniti
+                if button_events_processed >= 10 {
+                    break;
+                }
             }
 
-            // Small pause to avoid intensive loop
-            std::thread::yield_now();
+            // ✅ PRIORITÀ 2: Process drone events (LIMITATI per non bloccare)
+            let drone_node_ids: Vec<NodeId> = self.receiver_event.keys().copied().collect();
+            let mut drone_events_processed = 0;
+            for node_id in drone_node_ids {
+                // ✅ FIX BORROWING: Raccogli gli eventi PRIMA di chiamare handle_drone_event
+                let mut events_to_process = Vec::new();
+                if let Some(receiver) = self.receiver_event.get(&node_id) {
+                    // Raccogli AL MASSIMO 3 eventi per drone per iterazione
+                    for _ in 0..3 {
+                        if let Ok(event) = receiver.try_recv() {
+                            events_to_process.push(event);
+                        } else {
+                            break; // Nessun altro evento per questo drone
+                        }
+                    }
+                }
+
+                // ✅ Ora processa gli eventi raccolti (no borrow conflicts)
+                for event in events_to_process {
+                    self.handle_drone_event(event, node_id);
+                    drone_events_processed += 1;
+                }
+
+                // ✅ Limite globale per evitare che i droni monopolizzino il loop
+                if drone_events_processed >= 20 {
+                    break;
+                }
+            }
+
+            // ✅ PRIORITÀ 3: Process node events (LIMITATI per non bloccare)
+            let node_node_ids: Vec<NodeId> = self.receriver_node_event.keys().copied().collect();
+            let mut node_events_processed = 0;
+            for node_id in node_node_ids {
+                // ✅ FIX BORROWING: Raccogli gli eventi PRIMA di chiamare handle_node_event
+                let mut events_to_process = Vec::new();
+                if let Some(receiver) = self.receriver_node_event.get(&node_id) {
+                    // Raccogli AL MASSIMO 3 eventi per nodo per iterazione
+                    for _ in 0..3 {
+                        if let Ok(event) = receiver.try_recv() {
+                            events_to_process.push(event);
+                        } else {
+                            break; // Nessun altro evento per questo nodo
+                        }
+                    }
+                }
+
+                // ✅ Ora processa gli eventi raccolti (no borrow conflicts)
+                for event in events_to_process {
+                    self.handle_node_event(event, node_id);
+                    node_events_processed += 1;
+                }
+
+                // ✅ Limite globale per evitare che i nodi monopolizzino il loop
+                if node_events_processed >= 20 {
+                    break;
+                }
+            }
+
+            // ✅ DEBUG: Stampa statistiche ogni tanto
+            let total_events = button_events_processed + drone_events_processed + node_events_processed;
+            if total_events > 0 {
+                println!("🔄 CONTROLLER: Processed {} button, {} drone, {} node events",
+                         button_events_processed, drone_events_processed, node_events_processed);
+            }
+
+            // ✅ Small pause to avoid intensive loop (più piccolo per reattività)
+            if total_events == 0 {
+                // Se non ci sono eventi, fai una pausa più lunga
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            } else {
+                // Se ci sono eventi, pausa minima per processare rapidamente
+                std::thread::yield_now();
+            }
         }
     }
 
