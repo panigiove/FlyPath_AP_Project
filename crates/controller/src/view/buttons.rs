@@ -61,7 +61,7 @@ impl ButtonWindow {
     pub fn clear_selection(&mut self) {
         self.node_id1 = None;
         self.node_id2 = None;
-        self.multiple_selection_mode = false;
+        self.multiple_selection_mode = false; // ✅ Esci dalla modalità multi-selezione
         let _ = self.sender_buttom_messages.try_send(ButtonsMessages::ClearAllSelections);
     }
 
@@ -82,13 +82,9 @@ impl ButtonWindow {
 
 // NUOVA IMPLEMENTAZIONE DRAWABLE
 impl Drawable for ButtonWindow {
-    fn update(&mut self) {
-        self.handle_node_clicks();
-    }
-
     fn render(&mut self, ui: &mut egui::Ui) {
         ui.add_space(5.0);
-        ui.heading("🎛️ Network Controls");
+        ui.heading("Network Controls");
         ui.separator();
 
         // Selection info
@@ -96,14 +92,21 @@ impl Drawable for ButtonWindow {
         match (self.node_id1, self.node_id2) {
             (None, None) => {
                 ui.label("No nodes selected");
-                ui.label("Click on a node to select it");
+                if self.multiple_selection_mode {
+                    ui.colored_label(egui::Color32::YELLOW, "🔗 Multi-selection active: Click 2 drones for server");
+                } else {
+                    ui.label("Click on a node to select it");
+                }
             }
             (Some(id1), None) => {
                 ui.label(format!("Selected Node: {}", id1));
+                if self.multiple_selection_mode {
+                    ui.colored_label(egui::Color32::YELLOW, "🔗 Multi-selection: Click 1 more drone for server");
+                }
             }
             (Some(id1), Some(id2)) => {
                 ui.label(format!("Selected Nodes: {} and {}", id1, id2));
-                ui.label("Ready to create/remove edge");
+                ui.colored_label(egui::Color32::GREEN, "✅ Ready to create server or edge!");
             }
             (None, Some(_)) => unreachable!(),
         }
@@ -147,12 +150,103 @@ impl Drawable for ButtonWindow {
 
         ui.separator();
 
-        // Connection operations
+        // ✅ SEZIONE MIGLIORATA: Creation operations con istruzioni chiare
+        ui.heading("➕ Create New Nodes");
+
+        // ✅ STEP-BY-STEP per Server creation
+        ui.group(|ui| {
+            ui.label("🖥️ Create Server (requires 2 drones):");
+
+            let has_two_nodes = self.node_id1.is_some() && self.node_id2.is_some();
+            let has_one_node = self.node_id1.is_some() && self.node_id2.is_none();
+            let has_no_nodes = self.node_id1.is_none() && self.node_id2.is_none();
+
+            // Step 1: Activate multi-selection
+            if !self.multiple_selection_mode {
+                ui.horizontal(|ui| {
+                    if ui.button("1️⃣ Start Multi-Selection").clicked() {
+                        self.enter_multiple_selection_mode();
+                    }
+                    ui.label("← Click this first");
+                });
+                ui.label("📝 Step 1: Activate multi-selection mode");
+            } else {
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::GREEN, "✅ Multi-selection active");
+                    if ui.small_button("Cancel").clicked() {
+                        self.clear_selection();
+                    }
+                });
+
+                // Step 2 & 3: Select drones
+                if has_no_nodes {
+                    ui.label("📝 Step 2: Click on the FIRST drone");
+                } else if has_one_node {
+                    ui.label("📝 Step 3: Click on the SECOND drone");
+                } else if has_two_nodes {
+                    // Step 4: Create server
+                    ui.horizontal(|ui| {
+                        if ui.button("4️⃣ 🖥️ Create Server").clicked() {
+                            if let (Some(drone1), Some(drone2)) = (self.node_id1, self.node_id2) {
+                                self.send_button_event(ButtonEvent::NewServerWithTwoConnections(drone1, drone2));
+                                self.clear_selection();
+                            }
+                        }
+                        ui.colored_label(egui::Color32::GREEN, "← Ready to create!");
+                    });
+                }
+            }
+        });
+
+        ui.separator();
+
+        // ✅ Single-node creation (Client & Drone)
+        ui.group(|ui| {
+            ui.label("🤖💻 Create Client or Drone (requires 1 drone):");
+
+            let has_single_selection = self.node_id1.is_some() && self.node_id2.is_none() && !self.multiple_selection_mode;
+
+            if !has_single_selection {
+                if self.multiple_selection_mode {
+                    ui.label("📝 Exit multi-selection mode first, then click 1 drone");
+                } else if self.node_id2.is_some() {
+                    ui.label("📝 You have 2 nodes selected - clear selection and click 1 drone");
+                } else {
+                    ui.label("📝 Click on 1 drone to enable client/drone creation");
+                }
+            }
+
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(has_single_selection, |ui| {
+                    if ui.button("🤖 New Drone").clicked() {
+                        if let Some(connection_id) = self.node_id1 {
+                            self.send_button_event(ButtonEvent::NewDrone(connection_id, self.selected_pdr));
+                            self.clear_selection();
+                        }
+                    }
+                });
+
+                ui.add_enabled_ui(has_single_selection, |ui| {
+                    if ui.button("💻 New Client").clicked() {
+                        if let Some(connection_id) = self.node_id1 {
+                            self.send_button_event(ButtonEvent::NewClient(connection_id));
+                            self.clear_selection();
+                        }
+                    }
+                });
+            });
+        });
+
+        ui.separator();
+
+        // ✅ Connection operations (rimangono come prima)
         ui.heading("🔗 Connection Operations");
 
         ui.horizontal(|ui| {
-            if ui.button("🔗 Add Edge Mode").clicked() {
-                self.enter_multiple_selection_mode();
+            if !self.multiple_selection_mode {
+                if ui.button("🔗 Add Edge Mode").clicked() {
+                    self.enter_multiple_selection_mode();
+                }
             }
 
             let can_add_edge = self.node_id1.is_some() && self.node_id2.is_some();
@@ -180,48 +274,14 @@ impl Drawable for ButtonWindow {
 
         ui.separator();
 
-        // Creation operations
-        ui.heading("➕ Create New Nodes");
-
-        let has_selection = self.node_id1.is_some();
-
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(has_selection, |ui| {
-                if ui.button("🤖 New Drone").clicked() {
-                    if let Some(connection_id) = self.node_id1 {
-                        self.send_button_event(ButtonEvent::NewDrone(connection_id, self.selected_pdr));
-                        self.clear_selection();
-                    }
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(has_selection, |ui| {
-                if ui.button("💻 New Client").clicked() {
-                    if let Some(connection_id) = self.node_id1 {
-                        self.send_button_event(ButtonEvent::NewClient(connection_id));
-                        self.clear_selection();
-                    }
-                }
-            });
-        });
-
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(has_selection, |ui| {
-                if ui.button("🖥️ New Server").clicked() {
-                    if let Some(connection_id) = self.node_id1 {
-                        self.send_button_event(ButtonEvent::NewServer(connection_id));
-                        self.clear_selection();
-                    }
-                }
-            });
-        });
-
-        ui.separator();
+        // ✅ Clear button sempre visibile
         if ui.button("🔄 Clear Selection").clicked() {
             self.clear_selection();
         }
+    }
+
+    fn update(&mut self) {
+        self.handle_node_clicks();
     }
 
     fn needs_continuous_updates(&self) -> bool {

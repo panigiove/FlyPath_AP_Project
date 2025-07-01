@@ -41,7 +41,7 @@ impl Drawable for MessagesWindow {
     fn render(&mut self, ui: &mut egui::Ui) {
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            ui.heading("📝 Messages");
+            ui.heading("Messages");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("🗑️ Clear").clicked() {
                     self.log.clear();

@@ -21,27 +21,46 @@ pub struct ControllerUi {
 }
 
 impl ControllerUi {
-    pub fn new(cc: &eframe::CreationContext<'_>, client_ui_state: Arc<Mutex<UiState>>,
-               graph_updates_receiver: Receiver<GraphAction>, button_event_sender: Sender<ButtonEvent>,
-               message_receiver: Receiver<MessageType>, connections: HashMap<NodeId, Vec<NodeId>>,
-               node_types: HashMap<NodeId, NodeType>) -> Self {
-
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        client_ui_state: Arc<Mutex<UiState>>,
+        graph_updates_receiver: Receiver<GraphAction>,
+        button_event_sender: Sender<ButtonEvent>,
+        message_receiver: Receiver<MessageType>,
+        message_sender: Sender<MessageType>,
+        client_state_receiver: Receiver<(NodeId, ClientState)>, // ← AGGIUNGI QUESTA RIGA
+        connections: HashMap<NodeId, Vec<NodeId>>,
+        node_types: HashMap<NodeId, NodeType>
+    ) -> Self {
+        
         let (node_clicked_sender, node_clicked_receiver) = unbounded::<NodeId>();
         let (button_messages_sender, button_messages_receiver) = unbounded::<ButtonsMessages>();
-        let (edge_clicked_sender, edge_clicked_receiver) = unbounded::<(NodeId, NodeId)>();
-        let (button_event_sender, button_event_receiver) = unbounded::<ButtonEvent>();
-        let (client_state_sender, client_state_receiver) = unbounded::<(NodeId, ClientState)>();
-        let (message_sender, message_receiver) = unbounded::<MessageType>();
+        let (edge_clicked_sender, _edge_clicked_receiver) = unbounded::<(NodeId, NodeId)>();
         
-        let graph_app = GraphApp::new(cc, connections,node_types, graph_updates_receiver, node_clicked_sender, 
-                                      edge_clicked_sender, button_messages_receiver, message_sender.clone(), client_ui_state, 
-                                      client_state_receiver);
+        let graph_app = GraphApp::new(
+            cc,
+            connections,
+            node_types,
+            graph_updates_receiver,
+            node_clicked_sender,
+            edge_clicked_sender,
+            button_messages_receiver,
+            message_sender.clone(),
+            client_ui_state,
+            client_state_receiver
+        );
         
-        let button_window = ButtonWindow::new(node_clicked_receiver, button_messages_sender, button_event_sender);
+        let button_window = ButtonWindow::new(
+            node_clicked_receiver,
+            button_messages_sender,
+            button_event_sender
+        );
+        
         let messages_window = MessagesWindow::new(message_receiver);
-        message_sender.send(MessageType::Ok("System initialized".to_string())).ok();
         
-        Self{
+        message_sender.send(MessageType::Ok("System initialized".to_string())).ok();
+
+        Self {
             graph_app,
             button_window,
             messages_window
@@ -49,27 +68,31 @@ impl ControllerUi {
     }
 }
 
-impl eframe::App for ControllerUi{
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+impl ControllerUi {
+    pub fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         self.button_window.update();
         self.messages_window.update();
         self.graph_app.handle_pending_events();
     }
-}
 
-impl ControllerUi{
+    pub fn render(&mut self, ctx: &Context, frame: &mut Frame) {
+        egui::TopBottomPanel::bottom("Message panel")
+            .resizable(true)
+            .default_height(180.0)
+            .show(ctx, |ui| {
+                self.messages_window.render(ui);
+            });
 
-    pub fn render(&mut self, ctx: &Context, frame: &mut Frame){
-        egui::TopBottomPanel::bottom("Message panel").resizable(true).default_height(180.0).show(ctx, |ui|{
-            self.messages_window.render(ui);
-        });
-        egui::SidePanel::right("Possible actions").resizable(true).default_width(320.0).show(ctx, |ui|{
-            self.button_window.render(ui);
-        });
-        egui::CentralPanel::default().show(ctx, |ui|{
-            self.graph_app.update(ctx, frame);
-        });
+        egui::SidePanel::right("Possible actions")
+            .resizable(true)
+            .default_width(320.0)
+            .show(ctx, |ui| {
+                self.button_window.render(ui);
+            });
+        
+        self.graph_app.update(ctx, frame);
     }
+
     pub fn get_graph_app(&self) -> &GraphApp {
         &self.graph_app
     }

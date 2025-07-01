@@ -14,7 +14,6 @@ use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp
 // TODO: gentle crash
 
 fn main() -> eframe::Result {
-    // ✅ NUOVA PARTE: Gestisce argomenti da riga di comando
     let args: Vec<String> = std::env::args().collect();
     let config_path = if args.len() > 1 {
         args[1].clone()
@@ -23,14 +22,14 @@ fn main() -> eframe::Result {
     };
 
     println!("Caricando configurazione da: {}", config_path);
-
-    // ✅ MODIFICA: Passa il config_path a start()
+    
     let (to_ui,
         from_ui,
         _handlers,
         button_sender,
         graph_action_receiver,
         message_receiver,
+        message_sender,
         client_state_receiver,
         connections,
         nodes) = start(&config_path).unwrap_or_else(|e| {  // ← PASSA IL PARAMETRO
@@ -41,7 +40,10 @@ fn main() -> eframe::Result {
     let client_ui_state = _setup_ui_client_state(to_ui, from_ui);
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([620.0, 540.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1240.0, 1080.0])  // Il doppio: 620→1240, 540→1080
+            .with_min_inner_size([800.0, 600.0])  // Dimensione minima (opzionale)
+            .with_title("FLYPATH - Network Controller"), // Titolo personalizzato (opzionale)
         ..Default::default()
     };
 
@@ -54,6 +56,7 @@ fn main() -> eframe::Result {
             button_sender,
             graph_action_receiver,
             message_receiver,
+            message_sender,
             client_state_receiver,
             connections,
             nodes,
@@ -75,19 +78,22 @@ impl App {
     fn new (cc: &eframe::CreationContext<'_>, ui_state: UiState, button_sender: Sender<ButtonEvent>,
             graph_action_receiver: Receiver<GraphAction>,
             message_receiver: Receiver<MessageType>,
+            message_sender: Sender<MessageType>,
             client_state_receiver: Receiver<(NodeId, ClientState)>,
             connections: HashMap<NodeId, Vec<NodeId>>,
             nodes: HashMap<NodeId, NodeType>) -> Self {
         let client_ui_state =  Arc::new(Mutex::new(ui_state));
         let controller_ui = ControllerUi::new(
             cc,
-            client_ui_state.clone(), //TODO UI state deve implementare clone
+            client_ui_state.clone(),
             graph_action_receiver,
             button_sender,
             message_receiver,
+            message_sender,
+            client_state_receiver, // ← AGGIUNGI QUESTA RIGA
             connections,
             nodes
-        );; //valido fare client_ui_state.clone()?
+        );
         
         Self {
             client_ui_state,

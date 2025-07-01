@@ -32,6 +32,7 @@ pub enum NodeType{
     Client
 }
 
+#[derive(Debug)]
 pub enum GraphAction {
     AddNode(NodeId, NodeType),
     RemoveNode(NodeId),
@@ -39,11 +40,12 @@ pub enum GraphAction {
     RemoveEdge(NodeId,NodeId)
 }
 
-pub enum ButtonEvent{
-    NewDrone(NodeId, f32), //the NodeId isn't of the new drone but of the drone that we want to connect the new one
-    //the other value is the pdr's once, so we let the user to decide it
-    NewServer(NodeId), //the NodeId is of the first connection wich must be a drone
-    NewClient(NodeId), //the NodeId is of the first connection wich must be a drone
+#[derive(Debug, Clone)]
+pub enum ButtonEvent {
+    NewDrone(NodeId, f32),
+    NewClient(NodeId),
+    NewServer(NodeId),  // ← MANTIENI per retrocompatibilità
+    NewServerWithTwoConnections(NodeId, NodeId), // ← NUOVO
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
     RemoveConection(NodeId, NodeId),

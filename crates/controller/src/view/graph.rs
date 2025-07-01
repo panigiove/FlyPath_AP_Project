@@ -433,10 +433,9 @@ impl eframe::App for GraphApp {
         self.handle_keyboard_input(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("🌐 Grafo di Rete");
+            ui.heading("Network Graph");
 
             // Debug: stampa tutte le texture caricate
-            println!("📋 Texture caricate nel context:");
             for (node_type, tex_id) in &self.node_textures {
                 println!("   {:?} -> {:?}", node_type, tex_id);
             }
@@ -450,12 +449,10 @@ impl eframe::App for GraphApp {
                 ui.painter().rect_filled(rect, 5.0, egui::Color32::from_gray(250));
 
                 // Debug dettagliato prima del rendering
-                println!("\n🔍 === STATO PRE-RENDERING ===");
                 for (node_id, node) in &self.nodes {
                     println!("Nodo {}: tipo={:?}, texture={:?}",
                              node_id, node.node_type, node.texture_id);
                 }
-                println!("=========================\n");
 
                 // Disegna gli edge prima dei nodi
                 for edge in &self.edges {
@@ -471,9 +468,9 @@ impl eframe::App for GraphApp {
                 for node in self.nodes.values() {
                     // Debug: verifica se il nodo ha una texture
                     if let Some(tex_id) = node.texture_id {
-                        println!("✅ Disegnando nodo {} CON texture: {:?}", node.id, tex_id);
+                        
                     } else {
-                        println!("⚠️ Nodo {} SENZA texture!", node.id);
+                        
                     }
                     node.draw(ui.painter());
                 }

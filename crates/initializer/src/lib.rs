@@ -82,8 +82,8 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>,
     HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>,
     Vec<JoinHandle<()>>, Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
-    Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>, HashMap<NodeId, NodeType>
-), Box<dyn std::error::Error>>{
+    Sender<MessageType>,Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>,
+    HashMap<NodeId, NodeType>), Box<dyn std::error::Error>>{
     let cfg = parse_config(config_path)?;
 
     let mut sender_receiver_pair_drone_event: HashMap<NodeId, (Sender<DroneEvent>, Receiver<DroneEvent>)> = HashMap::new();
@@ -143,6 +143,17 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     let mut nodes: HashMap<NodeId, NodeType> = HashMap::new();
 
     let mut index = 0;
+
+    drones_counter.insert(DroneGroup::RustInPeace, 0);
+    drones_counter.insert(DroneGroup::BagelBomber, 0);
+    drones_counter.insert(DroneGroup::LockheedRustin, 0);
+    drones_counter.insert(DroneGroup::RollingDrone, 0);
+    drones_counter.insert(DroneGroup::RustDoIt, 0);
+    drones_counter.insert(DroneGroup::RustRoveri, 0);
+    drones_counter.insert(DroneGroup::Rustastic, 0);
+    drones_counter.insert(DroneGroup::RustBusters, 0);
+    drones_counter.insert(DroneGroup::LeDronJames, 0);
+    drones_counter.insert(DroneGroup::RustyDrones, 0);
 
     // Start drone threads
     for node in cfg.drone.iter() {
@@ -429,24 +440,33 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     let cloned_node = nodes.clone();
     let cloned_connections = connections.clone();
 
-    let controller_handler: ControllerHandler = ControllerHandler::new(cloned_node, drones_types, drone_senders, cloned_connections,
-                                                                       send_command_drone, send_command_node, receivers_drone_event,
-                                                                       receivers_node_event, button_receiver, graph_action_sender,
-                                                                       message_sender, client_state_sender);
-    // Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
-    // Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>, HashMap<NodeId, NodeType>
+    let mut controller_handler: ControllerHandler = ControllerHandler::new(
+        cloned_node, drones_types, drone_senders, cloned_connections,
+        send_command_drone, send_command_node, receivers_drone_event,
+        receivers_node_event, button_receiver, graph_action_sender,
+        message_sender.clone(), client_state_sender,
+        drones_counter
+    );
 
-    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication, thread_handles, button_sender, graph_action_receiver,
-    message_receiver, client_state_receiver, connections, nodes ))
+    // 🚀 AGGIUNGI QUESTE RIGHE:
+    let controller_handle = thread::spawn(move || {
+        println!("🎯 ControllerHandler started!");
+        controller_handler.run();
+    });
+    thread_handles.push(controller_handle);
+
+    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication,
+        thread_handles, button_sender, graph_action_receiver,
+        message_receiver,message_sender, client_state_receiver, connections, nodes ))
 }
 
 //the Network Initialization File should represent a connected graph
 fn is_connected(config: &Config) -> bool {
-    
+
     let mut all_existing_nodes: HashSet<NodeId> = HashSet::new();
     let mut node_connections: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
 
-    
+
     for drone in &config.drone {
         all_existing_nodes.insert(drone.id);
         node_connections.insert(drone.id, HashSet::new());
@@ -459,7 +479,7 @@ fn is_connected(config: &Config) -> bool {
         all_existing_nodes.insert(server.id);
         node_connections.insert(server.id, HashSet::new());
     }
-    
+
     for drone in &config.drone {
         let connections = node_connections.get_mut(&drone.id).unwrap();
         for &connected_id in &drone.connected_node_ids {
@@ -507,7 +527,7 @@ fn is_connected(config: &Config) -> bool {
             }
         }
     }
-    
+
     visited == all_existing_nodes
 }
 
