@@ -138,7 +138,7 @@ impl Worker {
         if let Some(from) = packet.routing_header.source() {
             match &packet.pack_type {
                 FloodRequest(request) => {
-                    debug!("PACK: flood request handling from {:?}", from);
+                    debug!("{}: PACK: flood request handling from {:?}", self.my_id, from);
 
                     let mut response = request
                         .get_incremented(self.my_id, Client)
@@ -153,32 +153,36 @@ impl Worker {
                                     .tx_ctrl
                                     .send(NodeEvent::PacketSent(response.clone()))
                                     .expect("Failed to transmit to CONTROLLER");
-                                return;
                             } else {
-                                warn!("Failed to send flood response to drone {:?}", nid);
+                                warn!("{}: Failed to send flood response to drone {:?}, Using Controller Fallback",self.my_id, nid);
+                                self.channels
+                                    .borrow()
+                                    .tx_ctrl
+                                    .send(NodeEvent::ControllerShortcut(response.clone()))
+                                    .expect("Failed to transmit to CONTROLLER");
+                                self.channels.borrow_mut().tx_drone.remove(&nid);
                             }
                         } else {
-                            warn!("No drone channel found for {:?}", nid);
+                            warn!("{}: No drone channel found for {:?}, Using Controller Fallback", self.my_id, nid);
                             self.network.state.remove_node(&nid);
-                        }
 
-                        info!("Sending packet to controller as fallback for {:?}", nid);
-                        self.channels
-                            .borrow()
-                            .tx_ctrl
-                            .send(NodeEvent::ControllerShortcut(response.clone()))
-                            .expect("Failed to transmit to CONTROLLER");
-                        self.channels.borrow_mut().tx_drone.remove(&nid);
+                            self.channels
+                                .borrow()
+                                .tx_ctrl
+                                .send(NodeEvent::ControllerShortcut(response.clone()))
+                                .expect("Failed to transmit to CONTROLLER");
+                            self.channels.borrow_mut().tx_drone.remove(&nid);
+                        }
                     } else {
-                        error!("No next hop found in routing header");
+                        error!("{}: No next hop found in routing header", self.my_id);
                     }
-                    
+
                     // upgrade the topology throw generate flood response
                     if let FloodResponse(response) = &response.pack_type {
                         if let Some(server_reach) =
                             self.network.update_network_from_flood_response(response)
                         {
-                            info!("New servers discovered: {:?}", server_reach);
+                            info!("{}: New servers discovered: {:?}",self.my_id, server_reach);
                             self._send_buffer(&server_reach);
                             self._registry_and_client_list(&server_reach);
                         }
@@ -223,7 +227,7 @@ impl Worker {
 
     fn _send_message(&mut self, sid: &NodeId, msg: ChatRequest) {
         let wrapper = self.message.create_and_store_wrapper(sid, msg.clone());
-        debug!("Create Message: {:?}, Wrapper: {:?}", msg, wrapper);
+        debug!("{}: Create Message: {:?}", self.my_id, msg);
         let mut unsent = Vec::new();
 
         self.channels

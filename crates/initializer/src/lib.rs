@@ -371,21 +371,24 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         nodes.insert(node.id, NodeType::Client);
 
         let node_id = node.id;
-        let handle = thread::spawn(move || {
-            let mut node = Worker::new(
-                node_id,
-                sender_hash,
-                sender_node_event,
-                sender_node_to_ui_communication,
-                receiver_packet,
-                receiver_node_command,
-                receiver_node_from_ui_communication
-            );
-            node.run();
-        });
-        thread_handles.push(handle);
-        //TODO aggiungere i client al UiState
-    }
+
+        let handle = thread::Builder::new()
+            .name(format!("{}", node_id))
+            .spawn(move || {
+                let mut node = Worker::new(
+                    node_id,
+                    sender_hash,
+                    sender_node_event,
+                    sender_node_to_ui_communication,
+                    receiver_packet,
+                    receiver_node_command,
+                    receiver_node_from_ui_communication,
+                );
+                node.run();
+            })
+            .expect("Impossibile spawnare il thread Worker"); // È buona pratica gestire l'errore se il thread non si avvia
+
+        thread_handles.push(handle);    }
 
     // Start server threads
     for node in cfg.server.iter() {

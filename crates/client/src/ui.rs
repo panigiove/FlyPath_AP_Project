@@ -223,18 +223,19 @@ impl Ui {
                                 ui.add_space(5.0); // Spazio tra i bottoni
 
                                 // Reload All button
-                                if ui
-                                    .add_sized(
-                                        [left_width - 10.0, 25.0],
-                                        egui::Button::new("Reload All"),
-                                    )
-                                    .clicked()
-                                {
-                                    client_state
-                                        .tx_to_worker
-                                        .send(FromUiCommunication::RefreshTopology)
-                                        .expect("Failed to transmit to UI");
-                                }
+                                //TODO: too problematic
+                                // if ui
+                                //     .add_sized(
+                                //         [left_width - 10.0, 25.0],
+                                //         egui::Button::new("Reload All"),
+                                //     )
+                                //     .clicked()
+                                // {
+                                //     client_state
+                                //         .tx_to_worker
+                                //         .send(FromUiCommunication::RefreshTopology)
+                                //         .expect("Failed to transmit to UI");
+                                // }
                             });
                         },
                     );

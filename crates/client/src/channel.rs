@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use log::{info, warn};
 use message::{NodeCommand, NodeEvent};
 use std::collections::HashMap;
+use std::thread;
 use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
 
@@ -43,10 +44,10 @@ impl ChannelManager {
                     self.tx_ctrl
                         .send(NodeEvent::PacketSent(packet.clone()))
                         .expect("Failed to transmit to CONTROLLER");
-                    info!("Packet sent successfully to node {}", nid);
+                    info!("{}: Packet sent successfully to node {}", thread::current().name().unwrap_or("unnamed"),nid);
                 }
                 Err(_) => {
-                    warn!("Failed to send packet to node {}", nid);
+                    warn!("{}: Failed to send packet to node {}", thread::current().name().unwrap_or("unnamed"), nid);
                     failed_nodes.push(nid);
                 }
             }
@@ -54,7 +55,7 @@ impl ChannelManager {
 
         for nid in failed_nodes {
             self.tx_drone.remove(&nid);
-            info!("Removed node {} from tx_drone", nid);
+            info!("{}: Removed node {} from tx_drone",thread::current().name().unwrap_or("unnamed"), nid);
         }
     }
 }

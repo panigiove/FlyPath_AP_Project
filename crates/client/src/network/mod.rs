@@ -23,6 +23,7 @@ pub struct NetworkState {
     topology: Graph<NodeId, Weight>,
     id_to_idx: HashMap<NodeId, NodeIndex>,
     start_idx: NodeIndex,
+    start_id: NodeId,
     pub server_list: HashSet<NodeId>,
     routing_table: HashMap<NodeId, Vec<NodeId>>, // destination -> path
 
@@ -49,6 +50,7 @@ impl NetworkState {
             topology,
             id_to_idx,
             start_idx: idx,
+            start_id,
             server_list: HashSet::new(),
             routing_table: HashMap::new(),
             creation_time: SystemTime::now(),
@@ -134,7 +136,6 @@ impl NetworkState {
             | (NodeType::Client, NodeType::Drone)
             | (NodeType::Drone, NodeType::Client) => {
                 if self.topology.find_edge(a_idx, b_idx).is_none() {
-                    debug!("Adding bidirectional edge: {} <-> {}", a, b);
                     self.topology.add_edge(a_idx, b_idx, weight);
                 }
                 if self.topology.find_edge(b_idx, a_idx).is_none() {
@@ -143,13 +144,11 @@ impl NetworkState {
             }
             (NodeType::Drone, NodeType::Server) => {
                 if self.topology.find_edge(a_idx, b_idx).is_none() {
-                    debug!("Adding edge: {} -> {}", a, b);
                     self.topology.add_edge(a_idx, b_idx, weight);
                 }
             }
             (NodeType::Server, NodeType::Drone) => {
                 if self.topology.find_edge(b_idx, a_idx).is_none() {
-                    debug!("Adding edge: {} -> {}", b, a);
                     self.topology.add_edge(b_idx, a_idx, weight);
                 }
             }
@@ -271,7 +270,7 @@ impl NetworkState {
                 if let Some(sidx) = self.id_to_idx.get(sid) {
                     if distances.contains_key(sidx) {
                         if let Some(path) = self._reconstruct_path(&distances, *sidx) {
-                            debug!("New path computed {:?}", path);
+                            debug!("{}: New path computed {:?}", self.start_id, path);
                             self.routing_table.insert(*sid, path);
                         }
                     } else if self.should_flood_after_missing() {
@@ -300,12 +299,11 @@ impl NetworkState {
     /// * - `None` - If no route founded or determined
     pub fn get_server_path(&mut self, sid: &NodeId) -> Option<Vec<NodeId>> {
         if !self.server_list.contains(sid) {
-            warn!("Server is not present inside the list {:?}", sid);
+            warn!("{}: Server is not present inside the list {:?}", self.start_id, sid);
             return None;
         }
 
         if let Some(path) = self.routing_table.get(sid) {
-            debug!("Return Cached path to {:?}: {:?}", sid, path);
             return Some(path.clone());
         }
 
@@ -314,10 +312,9 @@ impl NetworkState {
             if distances.contains_key(sidx) {
                 if let Some(path) = self._reconstruct_path(&distances, *sidx) {
                     self.routing_table.insert(*sid, path.clone());
-                    debug!("Return Elaborated path to {:?}: {:?}", sid, path);
                     return Some(path.clone());
                 }
-                warn!("No path founded for {:?}", sid);
+                warn!("{}: No path founded for {:?}", self.start_id, sid);
             }
         }
         None
@@ -412,7 +409,7 @@ impl NetworkManager {
         flood_response: &FloodResponse,
     ) -> Option<Vec<NodeId>> {
         if flood_response.path_trace.is_empty() {
-            error!("Invalid path_trace: empty in flood response");
+            error!("{}: Invalid path_trace: empty in flood response", self.my_id);
             return None;
         }
 
@@ -433,15 +430,15 @@ impl NetworkManager {
             self.state.add_link(prev_id, curr_id, prev_type, curr_type, 1);
         }
 
-        info!("flood_response with path: {:?}, topology: {:?}", flood_response.path_trace ,self.state.topology);
+        info!("{}: flood_response with path: {:?}, topology: {:?}", self.my_id, flood_response.path_trace ,self.state.topology);
 
         if new_servers.is_empty() {
-            debug!("No new servers discovered in flood response.");
+            debug!("{}: No new servers discovered in flood response.", self.my_id);
             return None;
         }
 
         if !self.state.recompute_all_routes_to_server(None) {
-            warn!("Route recomputation failed. Sending new flood request.");
+            warn!("{}: Route recomputation failed. Sending new flood request.", self.my_id);
             self.send_flood_request();
         }
 
