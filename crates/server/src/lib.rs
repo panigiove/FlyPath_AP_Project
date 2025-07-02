@@ -107,16 +107,27 @@ impl ChatServer {
                     {
                         self.last_session_id += 1;
                         self.send_event(NodeEvent::CreateMessage(wrapper.clone()));
-                        for frag in wrapper.fragments {
-                            self.send_packet(&mut Packet {
-                                routing_header: SourceRoutingHeader::initialize(
-                                    self.network_manager
-                                        .get_route(&wrapper.destination)
-                                        .unwrap(),
-                                ),
-                                session_id: wrapper.session_id,
-                                pack_type: PacketType::MsgFragment(frag),
-                            })
+                        if let Some(route) = self.network_manager.get_route(&wrapper.destination){
+                            for frag in wrapper.fragments {
+                                self.send_packet(&mut Packet {
+                                    routing_header: SourceRoutingHeader::initialize(
+                                        route.clone()
+                                    ),
+                                    session_id: wrapper.session_id,
+                                    pack_type: PacketType::MsgFragment(frag),
+                                })
+                            }
+                        }
+                        else{
+                            for frag in wrapper.fragments {
+                                self.add_to_buffer(Packet {
+                                    routing_header: SourceRoutingHeader::initialize(
+                                        vec![wrapper.destination],
+                                    ),
+                                    session_id: wrapper.session_id,
+                                    pack_type: PacketType::MsgFragment(frag),
+                                })
+                            }
                         }
                     }
                 }
@@ -171,8 +182,16 @@ impl ChatServer {
 
             for key in keys.iter() {
                 for mut packet in self.server_buffer.remove(key).unwrap().clone() {
-                    self.network_manager.update_routing_path(&mut packet.routing_header);
-                    self.send_packet(&mut packet);
+                    if self.network_manager.update_routing_path(&mut packet.routing_header){
+                        self.send_packet(&mut packet);
+                    }
+                    else{
+                        let dest = packet.routing_header.destination().unwrap();
+                        if !self.server_buffer.contains_key(&dest){
+                            self.server_buffer.insert(packet.routing_header.destination().unwrap(), vec![]);
+                        }
+                        self.server_buffer.get_mut(&dest).unwrap().push(packet);
+                    }
                 }
             }
         }

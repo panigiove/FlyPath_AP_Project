@@ -1,6 +1,7 @@
-use log::info;
+use log::{info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, SystemTime};
+use log::Level::Warn;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 
@@ -102,11 +103,18 @@ impl NetworkManager {
 
         info!("Ack arrived from {}", hops[0]);
     }
-    pub fn update_routing_path(&mut self, routing_header: &mut SourceRoutingHeader){
-        let dest = routing_header.destination().unwrap();
-        self.generate_specific_route(&dest);
-        routing_header.hops = self.get_route(&dest).unwrap();
-        routing_header.hop_index = 0;
+    pub fn update_routing_path(&mut self, routing_header: &mut SourceRoutingHeader) -> bool{
+        if let Some(dest) = routing_header.destination(){
+            if self.generate_specific_route(&dest) {
+                routing_header.hops = self.get_route(&dest).unwrap();
+                routing_header.hop_index = 0;
+                return true
+            }
+        }
+        else{
+            warn!("no destination found");
+        }
+        false
     }
     pub fn remove_node(&mut self, node: NodeId) {
         self.topology.remove(&node);
@@ -182,9 +190,16 @@ impl NetworkManager {
         }
         info!("Generated all routes to clients");
     }
-    fn generate_specific_route(&mut self, node_id: &NodeId) {
-        self.routes.insert(*node_id, self.calculate_path(*node_id));
-        info!("Generated route to {}", node_id);
+    fn generate_specific_route(&mut self, node_id: &NodeId) -> bool{
+        if self.client_list.contains(node_id) {
+            self.routes.insert(*node_id, self.calculate_path(*node_id));
+            info!("Generated route to {}", node_id);
+            true
+        }
+        else{
+            warn!("{} is not on client list, unable to create route", node_id);
+            false
+        }
     }
     pub fn should_flood_request(&self) -> bool {
         let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(36000));
