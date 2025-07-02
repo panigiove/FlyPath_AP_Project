@@ -56,7 +56,6 @@ impl Worker {
             };
 
             if let Some(cmd) = cmd {
-                info!("handling CMD");
                 match cmd {
                     NodeCommand::RemoveSender(nid) => {
                         debug!("CMD: Remove Sender {:?}", nid);
@@ -86,7 +85,6 @@ impl Worker {
                 }
             }
             if let Some(inter) = inter {
-                info!("handling UI interaction");
                 match inter {
                     RefreshTopology => {
                         debug!("UI: Send Flood Request");
@@ -124,7 +122,6 @@ impl Worker {
                 }
             }
             if let Some(pack) = pack {
-                info!("handling PACKET");
                 self._packet_handler(pack);
             }
 
@@ -147,7 +144,6 @@ impl Worker {
                         .get_incremented(self.my_id, Client)
                         .generate_response(packet.session_id);
                     response.routing_header.increase_hop_index();
-                    debug!("Generated FloodResponse: {:?}", response.routing_header);
 
                     // upgrade the topology throw generate flood response
                     if let FloodResponse(response) = &response.pack_type {
@@ -157,15 +153,12 @@ impl Worker {
                             info!("New servers discovered: {:?}", server_reach);
                             self._send_buffer(&server_reach);
                             self._registry_and_client_list(&server_reach);
-                        } else {
-                            debug!("No new servers found in flood response.");
                         }
                     }
 
                     if let Some(nid) = response.routing_header.current_hop() {
                         if let Some(tx_drone) = self.channels.borrow().tx_drone.get(&nid) {
                             if tx_drone.send(response.clone()).is_ok() {
-                                debug!("Flood response sent to drone {:?}", nid);
                                 self.channels
                                     .borrow()
                                     .tx_ctrl
@@ -229,7 +222,8 @@ impl Worker {
     }
 
     fn _send_message(&mut self, sid: &NodeId, msg: ChatRequest) {
-        let wrapper = self.message.create_and_store_wrapper(sid, msg);
+        let wrapper = self.message.create_and_store_wrapper(sid, msg.clone());
+        debug!("Create Message: {:?}, Wrapper: {:?}", msg, wrapper);
         let mut unsent = Vec::new();
 
         self.channels

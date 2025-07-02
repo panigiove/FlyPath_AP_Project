@@ -14,14 +14,14 @@ use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp
 // TODO: gentle crash
 
 fn main() -> eframe::Result {
+    env_logger::init();
+    
     let args: Vec<String> = std::env::args().collect();
     let config_path = if args.len() > 1 {
         args[1].clone()
     } else {
         "./crates/initializer/src/test_data/input4.toml".to_string()
     };
-
-    println!("Caricando configurazione da: {}", config_path);
     
     let (to_ui,
         from_ui,
@@ -105,15 +105,9 @@ impl App {
 // &mut self, ctx: &Context, frame: &mut Frame
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        // egui::CentralPanel::default().show(ctx, |ui| {
-        //     //TODO: draw controller
-        //     ui.label("Hello from controller");
-        // });
         self.controller_ui.update(ctx, _frame);
 
-        // Renderizza l'UI del network (GraphApp, ButtonWindow, MessageWindow)
         self.controller_ui.render(ctx, _frame);
-
 
         let ui_state_clone = self.client_ui_state.clone();
         ctx.show_viewport_deferred(

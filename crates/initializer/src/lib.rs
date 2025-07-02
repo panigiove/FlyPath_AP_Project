@@ -450,7 +450,6 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
 
     // 🚀 AGGIUNGI QUESTE RIGHE:
     let controller_handle = thread::spawn(move || {
-        println!("🎯 ControllerHandler started!");
         controller_handler.run();
     });
     thread_handles.push(controller_handle);

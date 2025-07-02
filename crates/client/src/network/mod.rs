@@ -104,7 +104,7 @@ impl NetworkState {
         mut weight: Weight,
     ) {
         if (a_type == NodeType::Client && a != self.topology[self.start_idx])
-            || b_type == NodeType::Client
+            || (b_type == NodeType::Client && b != self.topology[self.start_idx])
         {
             return;
         }
@@ -133,14 +133,25 @@ impl NetworkState {
             (NodeType::Drone, NodeType::Drone)
             | (NodeType::Client, NodeType::Drone)
             | (NodeType::Drone, NodeType::Client) => {
-                self.topology.add_edge(a_idx, b_idx, weight);
-                self.topology.add_edge(b_idx, a_idx, weight);
+                if self.topology.find_edge(a_idx, b_idx).is_none() {
+                    debug!("Adding bidirectional edge: {} <-> {}", a, b);
+                    self.topology.add_edge(a_idx, b_idx, weight);
+                }
+                if self.topology.find_edge(b_idx, a_idx).is_none() {
+                    self.topology.add_edge(b_idx, a_idx, weight);
+                }
             }
             (NodeType::Drone, NodeType::Server) => {
-                self.topology.add_edge(a_idx, b_idx, weight);
+                if self.topology.find_edge(a_idx, b_idx).is_none() {
+                    debug!("Adding edge: {} -> {}", a, b);
+                    self.topology.add_edge(a_idx, b_idx, weight);
+                }
             }
             (NodeType::Server, NodeType::Drone) => {
-                self.topology.add_edge(b_idx, a_idx, weight);
+                if self.topology.find_edge(b_idx, a_idx).is_none() {
+                    debug!("Adding edge: {} -> {}", b, a);
+                    self.topology.add_edge(b_idx, a_idx, weight);
+                }
             }
             _ => {}
         }
@@ -155,13 +166,11 @@ impl NetworkState {
         }
 
         if self.id_to_idx.contains_key(&nid) {
-            debug!("Node {:?} already present, no other action.", nid);
             return;
         }
 
         let idx = self.topology.add_node(nid);
         self.id_to_idx.insert(nid, idx);
-        info!("Add node {:?} with type {:?}", nid, node_type);
 
         if node_type == NodeType::Server {
             self.server_list.insert(nid);
@@ -402,42 +411,38 @@ impl NetworkManager {
         &mut self,
         flood_response: &FloodResponse,
     ) -> Option<Vec<NodeId>> {
-        let Some((mut prev, mut prev_type)) = flood_response.path_trace.first().copied() else {
+        if flood_response.path_trace.is_empty() {
             error!("Invalid path_trace: empty in flood response");
             return None;
-        };
-
-        let mut new_servers: Vec<NodeId> = Vec::new();
-
-        for &(nid, ntype) in &flood_response.path_trace[1..] {
-            debug!(
-                "Processing link: {:?} ({:?}) -> {:?} ({:?})",
-                prev, prev_type, nid, ntype
-            );
-            if ntype == NodeType::Server && !self.state.server_list.contains(&nid) {
-                info!("Discovered new server node: {:?}", nid);
-                new_servers.push(nid);
-            }
-            self.state.add_link(prev, nid, prev_type, ntype, 1);
-            prev = nid;
-            prev_type = ntype;
         }
+
+        let new_servers: Vec<NodeId> = flood_response.path_trace.iter()
+            .filter_map(|&(nid, ntype)| {
+                if ntype == NodeType::Server && !self.state.server_list.contains(&nid) {
+                    Some(nid)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for window in flood_response.path_trace.windows(2) {
+            let (prev_id, prev_type) = window[0];
+            let (curr_id, curr_type) = window[1];
+
+            self.state.add_link(prev_id, curr_id, prev_type, curr_type, 1);
+        }
+
+        info!("flood_response with path: {:?}, topology: {:?}", flood_response.path_trace ,self.state.topology);
 
         if new_servers.is_empty() {
             debug!("No new servers discovered in flood response.");
             return None;
         }
 
-        debug!(
-            "New servers discovered: {:?}. Recomputing routes...",
-            new_servers
-        );
-
         if !self.state.recompute_all_routes_to_server(None) {
             warn!("Route recomputation failed. Sending new flood request.");
             self.send_flood_request();
-        } else {
-            info!("Route recomputation succeeded.");
         }
 
         Some(new_servers)
