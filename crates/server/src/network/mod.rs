@@ -18,8 +18,10 @@ pub struct NetworkManager {
 
 impl NetworkManager {
     pub fn new(server_id: NodeId, flood_interval: Duration) -> Self {
+        let mut topology = HashMap::new();
+        topology.insert(server_id, (HashSet::new(), 1.0, 1.0));
         Self {
-            topology: HashMap::new(),
+            topology,
             routes: HashMap::new(),
             client_list: HashSet::new(),
             server_id,
@@ -185,7 +187,7 @@ impl NetworkManager {
         info!("Generated route to {}", node_id);
     }
     pub fn should_flood_request(&self) -> bool {
-        let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(0));
+        let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(36000));
 
         elapsed > self.flood_interval || self.n_errors.rem_euclid(7) == 0 || self.n_dropped.rem_euclid(3) == 0
     }
