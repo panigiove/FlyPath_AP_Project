@@ -145,17 +145,6 @@ impl Worker {
                         .generate_response(packet.session_id);
                     response.routing_header.increase_hop_index();
 
-                    // upgrade the topology throw generate flood response
-                    if let FloodResponse(response) = &response.pack_type {
-                        if let Some(server_reach) =
-                            self.network.update_network_from_flood_response(response)
-                        {
-                            info!("New servers discovered: {:?}", server_reach);
-                            self._send_buffer(&server_reach);
-                            self._registry_and_client_list(&server_reach);
-                        }
-                    }
-
                     if let Some(nid) = response.routing_header.current_hop() {
                         if let Some(tx_drone) = self.channels.borrow().tx_drone.get(&nid) {
                             if tx_drone.send(response.clone()).is_ok() {
@@ -182,6 +171,17 @@ impl Worker {
                         self.channels.borrow_mut().tx_drone.remove(&nid);
                     } else {
                         error!("No next hop found in routing header");
+                    }
+                    
+                    // upgrade the topology throw generate flood response
+                    if let FloodResponse(response) = &response.pack_type {
+                        if let Some(server_reach) =
+                            self.network.update_network_from_flood_response(response)
+                        {
+                            info!("New servers discovered: {:?}", server_reach);
+                            self._send_buffer(&server_reach);
+                            self._registry_and_client_list(&server_reach);
+                        }
                     }
                 }
                 FloodResponse(flood_response) => {
