@@ -15,11 +15,14 @@ use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp
 // TODO: gentle crash
 
 fn main() -> eframe::Result {
-    // env_logger::init();
-    env_logger::Builder::from_default_env()
-        .target(env_logger::Target::Pipe(Box::new(File::create("app.log").unwrap())))
-        .init();
-
+    // console print of debug
+    env_logger::init();
+    
+    // redirect debug to app.log
+    // env_logger::Builder::from_default_env()
+    //     .target(env_logger::Target::Pipe(Box::new(File::create("app.log").unwrap())))
+    //     .init();
+    
     let args: Vec<String> = std::env::args().collect();
     let config_path = if args.len() > 1 {
         args[1].clone()
