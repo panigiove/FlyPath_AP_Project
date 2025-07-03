@@ -173,7 +173,7 @@ impl NetworkManager {
         }
 
         current_node = node_id;
-        while prev.get(&current_node).unwrap() != &self.server_id {
+        while current_node != self.server_id {
             path.push(current_node);
             current_node = *prev.get(&current_node).unwrap();
         }
