@@ -345,7 +345,9 @@ impl Ui {
                     match response {
                         ChatResponse::ClientList(nids) => {
                             for nid in nids {
-                                client_state.chat_message.entry(nid).or_default();
+                                if nid != client_state.my_id {
+                                    client_state.chat_message.entry(nid).or_default();
+                                }
                             }
                         }
                         ChatResponse::MessageFrom { from: nid, message } => {

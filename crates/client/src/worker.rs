@@ -110,7 +110,7 @@ impl Worker {
                                 );
                                 let request = ChatRequest::SendMessage {
                                     from: self.my_id,
-                                    to: sid,
+                                    to: destination,
                                     message: body,
                                 };
                                 self._send_message(&sid, request);
@@ -198,6 +198,7 @@ impl Worker {
                     }
                 }
                 Ack(ack) => {
+                    debug!("{}: received ack session: {} ack: {}", self.my_id, session, ack);
                     self.network.state.increment_weight_along_path(&path, -1);
                     self.message.ack_and_build_message(ack, session);
                 }

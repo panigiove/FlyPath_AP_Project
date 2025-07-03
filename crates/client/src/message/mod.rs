@@ -127,21 +127,23 @@ impl MessagerManager {
         source: NodeId,
     ) -> bool {
         let session_key = (session, source);
-        let is_new_session = !self.rcv_wrapper.contains_key(&session_key);
-
-        if is_new_session {
+        let mut is_not_duplicate = true;
+        if let Some (wrapper) = self.rcv_wrapper.get_mut(&session_key) {
+            debug!("{}: fragment from {}, session: {}", self.my_id, source, session);
+            is_not_duplicate = wrapper.add_fragment(fragment.clone());
+        }else {
+            debug!("{}: new fragment received with session {} and index {} from {}", self.my_id, session, fragment.fragment_index, source);
             self.rcv_wrapper.insert(
                 session_key,
-                RecvMessageWrapper::new_from_fragment(session, source, fragment),
+                RecvMessageWrapper::new_from_fragment(session, source, fragment.clone()),
             );
-            true
-        } else {
-            let wrapper = self.rcv_wrapper.get_mut(&session_key).unwrap();
-            let is_not_duplicate = wrapper.add_fragment(fragment);
+        }
 
+        if let Some (wrapper) = self.rcv_wrapper.get_mut(&session_key) {
             if wrapper.is_all_fragments_arrived() {
                 if let Some(msg) = wrapper.try_deserialize() {
                     if let ClientList(list) = &msg {
+                        debug!("{}: Received ClientList from {}. ClientList {:?}", self.my_id, source, list);
                         for client in list {
                             self.clients
                                 .entry(*client)
@@ -149,6 +151,7 @@ impl MessagerManager {
                                 .insert(source);
                         }
                     } else if let ErrorWrongClientId(client) = &msg {
+                        debug!("{}: Received ErrorWrongClientId from {}. ClientId {}", self.my_id, source, client);
                         if let Some(servers) = self.clients.get_mut(client) {
                             servers.remove(&source);
                             if servers.is_empty() {
@@ -167,10 +170,11 @@ impl MessagerManager {
                         .send(ChatResponse { response: msg })
                         .expect("Failed to transmit to UI");
                     self.rcv_wrapper.remove(&session_key);
+                } else {
+                    debug!("{}: another fragment received with session {} and index {} from {}", self.my_id, session, fragment.fragment_index, source);
                 }
             }
-
-            is_not_duplicate
         }
+        is_not_duplicate
     }
 }
