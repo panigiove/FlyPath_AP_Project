@@ -17,6 +17,9 @@ type Weight = u32;
 type Session = u64;
 
 const NEW_STATE_GRACE_PERIOD: Duration = Duration::from_secs(3); // TODO: is too much? evaluate
+const FLOOD_INTERVAL: Duration = Duration::from_secs(10);
+const ERROR_SCALE: u32 = 30;
+const DROP_SCALE: u32 = 20;
 
 #[derive(Clone)]
 pub struct NetworkState {
@@ -80,6 +83,7 @@ impl NetworkState {
             .elapsed()
             .unwrap_or(Duration::from_secs(0));
 
+        // debug!("{}: elapsed: {:?}, error: {} > (threshold){}, drop: {} > threshold: {}", self.start_id, elapsed, self.failed_error_count, error_threshold, self.failed_drop_count, drop_threshold);
         elapsed > self.flood_interval
             || self.failed_error_count > error_threshold
             || self.failed_drop_count > drop_threshold
@@ -371,15 +375,12 @@ pub struct NetworkManager {
 
 impl NetworkManager {
     pub fn new(my_id: NodeId, channels: Rc<RefCell<ChannelManager>>) -> Self {
-        let flood_interval = Duration::from_secs(10);
-        let error_scale = 30;
-        let drop_scale = 20;
-        let mut state = NetworkState::new(my_id, flood_interval, error_scale, drop_scale);
+        let mut state = NetworkState::new(my_id, FLOOD_INTERVAL, ERROR_SCALE, DROP_SCALE);
         state.add_node(my_id, NodeType::Client);
         Self {
             my_id,
             state,
-            old_state: NetworkState::new(my_id, flood_interval, error_scale, drop_scale),
+            old_state: NetworkState::new(my_id, FLOOD_INTERVAL, ERROR_SCALE, DROP_SCALE),
             channels,
             last_flood: 0,
         }
@@ -392,8 +393,9 @@ impl NetworkManager {
     /// in case the new state proves incomplete or invalid.
     pub fn send_flood_request(&mut self) {
         self.old_state = self.state.clone();
+        self.state = NetworkState::new(self.my_id, FLOOD_INTERVAL, ERROR_SCALE, DROP_SCALE);
         self.last_flood += 1;
-        debug!("Sending flood request with session {}", self.last_flood);
+        debug!("{}: Sending flood request with session {}", self.my_id, self.last_flood);
         let flood_request = Packet::new_flood_request(
             SourceRoutingHeader::empty_route(),
             0,

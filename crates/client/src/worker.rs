@@ -126,7 +126,7 @@ impl Worker {
             }
 
             if self.network.state.should_flood() {
-                info!("Network State expired, ask for flooding");
+                info!("{}: Network State expired, ask for flooding", self.my_id);
                 self.network.send_flood_request();
             }
         }

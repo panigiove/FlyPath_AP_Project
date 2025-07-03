@@ -4,6 +4,7 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::{egui, Frame};
 use initializer::start;
 use std::collections::HashMap;
+use std::fs::File;
 use std::process;
 use std::sync::{Arc, Mutex};
 use egui::Context;
@@ -14,7 +15,10 @@ use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp
 // TODO: gentle crash
 
 fn main() -> eframe::Result {
-    env_logger::init();
+    // env_logger::init();
+    env_logger::Builder::from_default_env()
+        .target(env_logger::Target::Pipe(Box::new(File::create("app.log").unwrap())))
+        .init();
     
     let args: Vec<String> = std::env::args().collect();
     let config_path = if args.len() > 1 {
