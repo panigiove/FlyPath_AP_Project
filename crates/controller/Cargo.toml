@@ -9,7 +9,7 @@ egui = "0.29"
 emath = "0.29"
 egui_extras = "0.29"
 epaint = "0.29"
-egui_graphs = "0.22"
+egui_graphs = { version = "0.22", features = ["events"] }
 crossbeam-channel = "0.5"
 
 

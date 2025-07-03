@@ -123,10 +123,9 @@ impl PanelDrawable for MessagesWindow {
     }
 
     fn preferred_size(&self) -> Option<egui::Vec2> {
-        Some(egui::Vec2::new(0.0, 200.0))
+        Some(egui::Vec2::new(0.0, 200.0)) // ✅ Altezza fissa 200px
     }
-
     fn is_resizable(&self) -> bool {
-        false
+        false // ✅ Non ridimensionabile
     }
 }

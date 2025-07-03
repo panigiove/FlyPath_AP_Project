@@ -7,6 +7,7 @@ use wg_2024::config::{Client, Drone, Server};
 use wg_2024::network::NodeId;
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
+use egui::{Color32};
 
 pub enum UIcommand{
     Spawn(Vec<NodeId>),
@@ -44,18 +45,20 @@ pub enum GraphAction {
 pub enum ButtonEvent {
     NewDrone(NodeId, f32),
     NewClient(NodeId),
-    NewServer(NodeId),  // ← MANTIENI per retrocompatibilità
-    NewServerWithTwoConnections(NodeId, NodeId), // ← NUOVO
+    NewServer(NodeId),
+    NewServerWithTwoConnections(NodeId, NodeId),
     NewConnection(NodeId, NodeId),
     Crash(NodeId),
     RemoveConection(NodeId, NodeId),
     ChangePdr(NodeId, f32),
 }
 
+#[derive(Debug, Clone)]
 pub enum ButtonsMessages{
     DeselectNode(NodeId), //dopo che abbiamo fatto un'operazione deselezioniamo il nodo
     MultipleSelectionAllowed, //per quando diciamo di voler aggiungere un edge
     UpdateSelection(Option<NodeId>, Option<NodeId>), // NUOVO: per sincronizzare la selezione
+    UpdateEdgeSelection(NodeId, NodeId),
     ClearAllSelections, // NUOVO: per pulire tutte le selezioni
 }
 
@@ -81,4 +84,16 @@ pub enum DroneGroup{
     LeDronJames,
     RustyDrones,
 }
+
+#[derive(Debug, Clone)]
+pub enum Clicked{
+    Node(NodeId),
+    Edge(NodeId, NodeId)
+}
 type NodePayload = (NodeId, NodeType);
+
+pub const ORANGE: Color32 = Color32::from_rgb(200, 150, 100);
+pub const LIGHT_BLUE: Color32 = Color32::from_rgb(140,182,188);
+pub const DARK_BLUE: Color32 = Color32::from_rgb(14,137,146);
+pub const LIGHT_ORANGE: Color32 = Color32::from_rgb(231,187,166);
+pub const DARK_GREEN: Color32 = Color32::from_rgb(13,49,58);

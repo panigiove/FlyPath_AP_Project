@@ -1,8 +1,7 @@
 use message::{NodeCommand, NodeEvent};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::HashMap;
-use std::sync::Arc;
-use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::network::{NodeId};
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
 use rand::{thread_rng, Rng};
@@ -28,10 +27,9 @@ use message::NodeCommand::FromShortcut;
 
 use client;
 use client::comunication::{FromUiCommunication, ToUICommunication};
-use client::ui::{ClientState, UiState};
+use client::ui::{ClientState};
 use client::worker::Worker;
 use server::ChatServer;
-use crate::utility::NodeType::{Client, Server};
 
 // Tipi di errore personalizzati
 #[derive(Debug)]
@@ -119,7 +117,6 @@ impl ControllerHandler {
             // ✅ PRIORITÀ 1: Process button events PRIMA di tutto
             let mut button_events_processed = 0;
             while let Ok(command) = self.button_receiver.try_recv() {
-                println!("🟢 ControllerHandler: Received button event: {:?}", command);
                 self.handle_button_event(command);
                 button_events_processed += 1;
 
@@ -189,10 +186,6 @@ impl ControllerHandler {
 
             // ✅ DEBUG: Stampa statistiche ogni tanto
             let total_events = button_events_processed + drone_events_processed + node_events_processed;
-            if total_events > 0 {
-                println!("🔄 CONTROLLER: Processed {} button, {} drone, {} node events",
-                         button_events_processed, drone_events_processed, node_events_processed);
-            }
 
             // ✅ Small pause to avoid intensive loop (più piccolo per reattività)
             if total_events == 0 {
@@ -208,29 +201,23 @@ impl ControllerHandler {
     // ================================ Event Handlers ================================
 
     pub fn handle_button_event(&mut self, event: ButtonEvent) {
-        println!("🟢 CONTROLLER: Received button event: {:?}", event);
         let result = match event {
             ButtonEvent::NewDrone(id, pdr) => {
-                println!("🤖 CONTROLLER: Creating new drone connected to {}", id);
                 self.spawn_drone(&id, pdr)
             },
-            ButtonEvent::NewServer(id) => {
-                println!("🖥️ CONTROLLER: Creating new server connected to {} (legacy method)", id);
+            ButtonEvent::NewServer(_) => {
                 // Legacy method - deprecated
                 Err(ControllerError::InvalidOperation(
                     "Use 'New Server (2 connections)' button instead. Select 2 drones and create server.".to_string()
                 ))
             },
             ButtonEvent::NewServerWithTwoConnections(drone1, drone2) => {
-                println!("🖥️ CONTROLLER: Creating new server connected to {} and {}", drone1, drone2);
                 self.create_server_with_two_connections(drone1, drone2)
             },
             ButtonEvent::NewClient(id) => {
-                println!("💻 CONTROLLER: Creating new client connected to {}", id);
                 self.create_client(id)
             },
             ButtonEvent::NewConnection(id1, id2) => {
-                println!("🔗 CONTROLLER: Creating connection between {} and {}", id1, id2);
                 self.add_connection(&id1, &id2)
             },
             ButtonEvent::Crash(id) => self.crash_drone(&id),
@@ -239,10 +226,8 @@ impl ControllerHandler {
         };
 
         if let Err(e) = result {
-            println!("❌ CONTROLLER: Error handling button event: {}", e);
             self.send_error_message(&e.to_string());
         } else {
-            println!("✅ CONTROLLER: Button event handled successfully");
         }
     }
 
@@ -268,12 +253,7 @@ impl ControllerHandler {
                 }
             },
             NodeEvent::ControllerShortcut(packet) => {
-                println!("🔄 CONTROLLER: Received ControllerShortcut from node {}", node_id);
-                println!("📦 CONTROLLER: Packet details - session_id: {}, destination: {:?}",
-                         packet.session_id, packet.routing_header.hops.last());
-
                 if let Err(e) = self.send_packet_to_client(packet) {
-                    println!("❌ CONTROLLER: Failed to send shortcut packet: {}", e);
                     self.debug_existing_nodes();
                     self.send_error_message(&format!("Failed to send shortcut packet: {}", e));
                 }
@@ -295,12 +275,7 @@ impl ControllerHandler {
                 self.send_info_message(&msg);
             }
             DroneEvent::ControllerShortcut(packet) => {
-                println!("🔄 CONTROLLER: Received ControllerShortcut from drone {}", drone_id);
-                println!("📦 CONTROLLER: Packet details - session_id: {}, destination: {:?}",
-                         packet.session_id, packet.routing_header.hops.last());
-
                 if let Err(e) = self.send_packet_to_client(packet) {
-                    println!("❌ CONTROLLER: Failed to send shortcut packet: {}", e);
                     self.debug_existing_nodes();
                     self.send_error_message(&format!("Failed to send shortcut packet: {}", e));
                 }
@@ -334,7 +309,6 @@ impl ControllerHandler {
         }
 
         // ORDINE CORRETTO: Prima AddNode, poi AddEdge
-        println!("🚀 CONTROLLER: Sending AddNode({}, Drone)", id);
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Drone)) {
             self.cleanup_drone(&id);
             return Err(e);
@@ -367,18 +341,13 @@ impl ControllerHandler {
         self.connections.insert(id, Vec::new()); // Vuoto inizialmente
         self.send_command_drone.insert(id, sender_drone_command.clone());
         self.receiver_event.insert(id, receiver_event);
-
-        // Health check
-        println!("💤 CONTROLLER: Waiting for drone {} to initialize...", id);
+        
         std::thread::sleep(std::time::Duration::from_millis(100));
-
-        println!("🔍 CONTROLLER: Testing if drone {} is responsive...", id);
+        
         match sender_drone_command.try_send(DroneCommand::SetPacketDropRate(pdr)) {
             Ok(()) => {
-                println!("✅ CONTROLLER: Drone {} is responsive!", id);
             }
-            Err(e) => {
-                println!("❌ CONTROLLER: Drone {} is not responsive: {}", id, e);
+            Err(_) => {
                 self.cleanup_drone(&id);
                 return Err(ControllerError::InvalidOperation(
                     format!("Drone {} failed to initialize properly", id)
@@ -416,27 +385,21 @@ impl ControllerHandler {
         };
 
         *self.drones_counter.entry(drone_group).or_insert(0) += 1;
-
-        println!("🚀 CONTROLLER: Starting drone {} in separate thread", id);
+        
         std::thread::spawn(move || {
-            println!("🤖 DRONE {}: Thread started, calling run()", id);
             drone.run();
-            println!("🤖 DRONE {}: Thread ended", id);
         });
 
         Ok(drone_group)
     }
 
     pub(crate) fn select_drone_group(&self) -> Option<&DroneGroup> {
-        println!("🔍 select_drone_group: drones_counter = {:?}", self.drones_counter);
 
         if self.drones_counter.is_empty() {
-            println!("❌ drones_counter is EMPTY!");
             return None;
         }
 
         let min_value = self.drones_counter.values().min()?;
-        println!("🔍 min_value = {}", min_value);
 
         let mut candidates: Vec<&DroneGroup> = self.drones_counter
             .iter()
@@ -451,7 +414,6 @@ impl ControllerHandler {
 
         candidates.shuffle(&mut thread_rng());
         let selected = candidates.into_iter().next();
-        println!("🔍 selected = {:?}", selected);
 
         selected
     }
@@ -526,7 +488,6 @@ impl ControllerHandler {
         self.node_types.insert(id, NodeType::Client);
 
         // ORDINE CORRETTO: Prima AddNode, poi AddEdge
-        println!("🚀 CONTROLLER: Sending AddNode({}, Client)", id);
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Client)) {
             self.cleanup_client(&id);
             return Err(e);
@@ -559,9 +520,7 @@ impl ControllerHandler {
         }
 
         // ✅ FIX: Crea il Worker all'interno del thread
-        println!("🚀 CONTROLLER: Starting client worker {} in separate thread", id);
         std::thread::spawn(move || {
-            println!("💻 CLIENT {}: Thread started, creating worker", id);
 
             let packet_send = HashMap::new();
             let mut worker = Worker::new(
@@ -573,10 +532,7 @@ impl ControllerHandler {
                 node_command_receiver,
                 from_ui_comunication_receiver
             );
-
-            println!("💻 CLIENT {}: Worker created, calling run()", id);
             worker.run();
-            println!("💻 CLIENT {}: Thread ended", id);
         });
 
         // Insert dei dati DOPO aver avviato il thread
@@ -584,8 +540,7 @@ impl ControllerHandler {
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send);
         self.receriver_node_event.insert(id, node_event_receiver);
-
-        println!("💤 CONTROLLER: Waiting for client {} to initialize...", id);
+        
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         Ok(())
@@ -593,7 +548,6 @@ impl ControllerHandler {
 
     // ✅ NUOVO: Create server with two connections atomically
     fn create_server_with_two_connections(&mut self, drone1: NodeId, drone2: NodeId) -> Result<(), ControllerError> {
-        println!("🖥️ CONTROLLER: Starting atomic server creation with 2 connections: {} and {}", drone1, drone2);
 
         let id = self.generate_random_id()?;
 
@@ -618,7 +572,6 @@ impl ControllerHandler {
         }
 
         // ✅ VERIFICA PRELIMINARE: Simula l'aggiunta per verificare che sarà valida
-        println!("🔍 CONTROLLER: Pre-validating network with server {} and connections to {} and {}", id, drone1, drone2);
         if !self.check_network_before_add_server_with_two_connections(&id, &drone1, &drone2) {
             return Err(ControllerError::NetworkConstraintViolation(
                 format!("Cannot add server {} with connections to {} and {}", id, drone1, drone2)
@@ -626,7 +579,6 @@ impl ControllerHandler {
         }
 
         // Crea il server senza connessioni
-        println!("🖥️ CONTROLLER: Creating server {} without connections", id);
         if let Err(e) = self.create_server_without_connection(id) {
             return Err(e);
         }
@@ -635,22 +587,18 @@ impl ControllerHandler {
         self.node_types.insert(id, NodeType::Server);
 
         // Invia AddNode
-        println!("🚀 CONTROLLER: Sending AddNode({}, Server)", id);
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Server)) {
             self.cleanup_server(&id);
             return Err(e);
         }
 
         // ✅ AGGIUNTA ATOMICA: Aggiungi entrambe le connessioni SENZA validazione intermedia
-        println!("🔗 CONTROLLER: Adding both connections atomically for server {}", id);
         if let Err(e) = self.add_server_connections_atomic(&id, &drone1, &drone2) {
-            println!("❌ CONTROLLER: Failed to add connections atomically, rolling back");
             let _ = self.send_graph_update(RemoveNode(id));
             self.cleanup_server(&id);
             return Err(e);
         }
-
-        println!("✅ CONTROLLER: Server {} created successfully with 2 connections", id);
+        
         self.send_success_message(&format!("Server {} created with connections to drones {} and {}", id, drone1, drone2));
         Ok(())
     }
@@ -660,11 +608,8 @@ impl ControllerHandler {
         let (p_send, p_receiver) = unbounded::<Packet>();
         let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
         let (node_command_send, node_command_receiver) = unbounded::<NodeCommand>();
-
-        // ✅ FIX: Crea il ChatServer all'interno del thread
-        println!("🚀 CONTROLLER: Starting chat server {} in separate thread", id);
+        
         std::thread::spawn(move || {
-            println!("🖥️ SERVER {}: Thread started, creating server", id);
 
             let packet_send = HashMap::new();
             let mut chat_server = ChatServer::new(
@@ -674,10 +619,8 @@ impl ControllerHandler {
                 p_receiver,
                 packet_send
             );
-
-            println!("🖥️ SERVER {}: Server created, calling run()", id);
+            
             chat_server.run();
-            println!("🖥️ SERVER {}: Thread ended", id);
         });
 
         // Insert dei dati DOPO aver avviato il thread
@@ -685,8 +628,7 @@ impl ControllerHandler {
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send);
         self.receriver_node_event.insert(id, node_event_receiver);
-
-        println!("💤 CONTROLLER: Waiting for server {} to initialize...", id);
+        
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         Ok(())
@@ -695,7 +637,6 @@ impl ControllerHandler {
     // ================================ Connection Management ================================
 
     fn add_connection(&mut self, id1: &NodeId, id2: &NodeId) -> Result<(), ControllerError> {
-        println!("🔗 CONTROLLER: Adding connection between {} and {}", id1, id2);
 
         if !self.check_network_before_add_connection(id1, id2) {
             return Err(ControllerError::NetworkConstraintViolation(
@@ -727,7 +668,6 @@ impl ControllerHandler {
         }
 
         // IMPORTANTE: Invia AddEdge al UI
-        println!("🚀 CONTROLLER: Sending AddEdge({}, {})", id1, id2);
         self.send_graph_update(AddEdge(*id1, *id2))?;
         self.send_success_message(&format!("Connection added between {} and {}", id1, id2));
 
@@ -761,55 +701,45 @@ impl ControllerHandler {
     // ================================ Helper Methods ================================
 
     fn add_sender(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
-        println!("📤 CONTROLLER: Adding sender from {} to {}", id, dst_id);
 
         let dst_sender = self.packet_senders.get(dst_id)
             .ok_or_else(|| ControllerError::NodeNotFound(*dst_id))?
             .clone();
 
         if self.is_drone(id) {
-            println!("📤 CONTROLLER: {} is a drone, sending DroneCommand::AddSender", id);
             let sender = self.send_command_drone.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
             match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender.clone())) {
                 Ok(()) => {
-                    println!("✅ CONTROLLER: DroneCommand::AddSender sent successfully");
                 }
                 Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
-                    println!("❌ CONTROLLER: Drone {} channel disconnected! Trying with delay...", id);
                     std::thread::sleep(std::time::Duration::from_millis(50));
 
                     match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender)) {
                         Ok(()) => {
-                            println!("✅ CONTROLLER: DroneCommand::AddSender sent successfully on retry");
                         }
                         Err(e) => {
-                            println!("❌ CONTROLLER: Drone {} is completely dead: {}", id, e);
                             return Err(ControllerError::ChannelSend(format!("Drone {} channel disconnected: {}", id, e)));
                         }
                     }
                 }
                 Err(e) => {
-                    println!("❌ CONTROLLER: FAILED to send DroneCommand::AddSender: {}", e);
                     return Err(ControllerError::ChannelSend(e.to_string()));
                 }
             }
         } else {
-            println!("📤 CONTROLLER: {} is a node, sending NodeCommand::AddSender", id);
             let sender = self.send_command_node.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
             match sender.send(NodeCommand::AddSender(*dst_id, dst_sender)) {
-                Ok(()) => println!("✅ CONTROLLER: NodeCommand::AddSender sent successfully"),
+                Ok(()) => {},
                 Err(e) => {
-                    println!("❌ CONTROLLER: FAILED to send NodeCommand::AddSender: {}", e);
                     return Err(ControllerError::ChannelSend(e.to_string()));
                 }
             }
         }
-
-        println!("✅ CONTROLLER: Sender added from {} to {}", id, dst_id);
+        
         Ok(())
     }
 
@@ -859,44 +789,35 @@ impl ControllerHandler {
     // ✅ FIX: send_packet_to_client gestisce sia Client che Server
     pub(crate) fn send_packet_to_client(&self, packet: Packet) -> Result<(), ControllerError> {
         // ✅ FIX: Salva i valori prima di spostare packet
-        let session_id = packet.session_id;
+        let _ = packet.session_id;
         let destination = packet.routing_header.hops.last().copied();
-
-        println!("📦 CONTROLLER: Processing shortcut packet with session_id: {}", session_id);
+        
 
         if let Some(destination) = destination {
-            println!("📦 CONTROLLER: Packet destination: {}", destination);
 
             match self.get_node_type(&destination) {
                 Some(NodeType::Client) => {
-                    println!("📦 CONTROLLER: Destination {} is a CLIENT", destination);
                     let sender = self.send_command_node.get(&destination)
                         .ok_or_else(|| ControllerError::NodeNotFound(destination))?;
                     sender.try_send(FromShortcut(packet))  // ✅ packet moved qui
                         .map_err(|e| ControllerError::ChannelSend(e.to_string()))?;
-                    println!("✅ CONTROLLER: Shortcut packet sent to client {}", destination);
                 }
                 Some(NodeType::Server) => {
-                    println!("📦 CONTROLLER: Destination {} is a SERVER", destination);
                     let sender = self.send_command_node.get(&destination)
                         .ok_or_else(|| ControllerError::NodeNotFound(destination))?;
                     sender.try_send(FromShortcut(packet))  // ✅ packet moved qui
                         .map_err(|e| ControllerError::ChannelSend(e.to_string()))?;
-                    println!("✅ CONTROLLER: Shortcut packet sent to server {}", destination);
                 }
                 Some(NodeType::Drone) => {
-                    println!("⚠️ CONTROLLER: Destination {} is a DRONE - shortcut not applicable", destination);
                     return Err(ControllerError::InvalidOperation(
                         format!("Cannot send shortcut packet to drone {}", destination)
                     ));
                 }
                 None => {
-                    println!("❌ CONTROLLER: Destination {} does not exist in the system", destination);
                     return Err(ControllerError::NodeNotFound(destination));
                 }
             }
         } else {
-            println!("❌ CONTROLLER: Packet has no destination in routing header");
             return Err(ControllerError::InvalidOperation(
                 "Packet has no destination".to_string()
             ));
@@ -907,17 +828,13 @@ impl ControllerHandler {
 
     // ✅ NUOVO: Metodo di debug per visualizzare nodi esistenti
     pub fn debug_existing_nodes(&self) {
-        println!("🔍 CONTROLLER: Current nodes in system:");
         for (&node_id, &node_type) in &self.node_types {
-            let has_packet_sender = self.packet_senders.contains_key(&node_id);
-            let has_command_sender = if node_type == NodeType::Drone {
+            let _ = self.packet_senders.contains_key(&node_id);
+            let _ = if node_type == NodeType::Drone {
                 self.send_command_drone.contains_key(&node_id)
             } else {
                 self.send_command_node.contains_key(&node_id)
             };
-
-            println!("   Node {}: {:?}, packet_sender: {}, command_sender: {}",
-                     node_id, node_type, has_packet_sender, has_command_sender);
         }
     }
 
@@ -944,7 +861,6 @@ impl ControllerHandler {
 
     // ✅ NUOVO: Aggiunge entrambe le connessioni senza validazione intermedia
     fn add_server_connections_atomic(&mut self, server_id: &NodeId, drone1: &NodeId, drone2: &NodeId) -> Result<(), ControllerError> {
-        println!("🔗 CONTROLLER: Adding atomic connections for server {}", server_id);
 
         // Aggiungi senders per server -> droni
         if let Err(e) = self.add_sender_without_validation(server_id, drone1) {
@@ -988,79 +904,65 @@ impl ControllerHandler {
         }
 
         // ✅ INVIA gli AddEdge ALLA FINE
-        println!("🚀 CONTROLLER: Sending AddEdge({}, {})", server_id, drone1);
         if let Err(e) = self.send_graph_update(AddEdge(*server_id, *drone1)) {
-            println!("❌ CONTROLLER: Failed to send first AddEdge");
             return Err(e);
         }
-
-        println!("🚀 CONTROLLER: Sending AddEdge({}, {})", server_id, drone2);
+        
         if let Err(e) = self.send_graph_update(AddEdge(*server_id, *drone2)) {
-            println!("❌ CONTROLLER: Failed to send second AddEdge");
             return Err(e);
         }
-
-        println!("✅ CONTROLLER: Both connections added successfully for server {}", server_id);
+        
         Ok(())
     }
 
     // ✅ NUOVO: add_sender senza validazione della rete
     fn add_sender_without_validation(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
-        println!("📤 CONTROLLER: Adding sender from {} to {} (no validation)", id, dst_id);
 
         let dst_sender = self.packet_senders.get(dst_id)
             .ok_or_else(|| ControllerError::NodeNotFound(*dst_id))?
             .clone();
 
         if self.is_drone(id) {
-            println!("📤 CONTROLLER: {} is a drone, sending DroneCommand::AddSender", id);
             let sender = self.send_command_drone.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
             match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender.clone())) {
                 Ok(()) => {
-                    println!("✅ CONTROLLER: DroneCommand::AddSender sent successfully");
                 }
+                //TODO
                 Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
-                    println!("❌ CONTROLLER: Drone {} channel disconnected! Trying with delay...", id);
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender)) {
                         Ok(()) => {
-                            println!("✅ CONTROLLER: DroneCommand::AddSender sent successfully on retry");
+                            
                         }
                         Err(e) => {
-                            println!("❌ CONTROLLER: Drone {} is completely dead: {}", id, e);
                             return Err(ControllerError::ChannelSend(format!("Drone {} channel disconnected: {}", id, e)));
                         }
                     }
                 }
                 Err(e) => {
-                    println!("❌ CONTROLLER: FAILED to send DroneCommand::AddSender: {}", e);
                     return Err(ControllerError::ChannelSend(e.to_string()));
                 }
             }
         } else {
-            println!("📤 CONTROLLER: {} is a node, sending NodeCommand::AddSender", id);
             let sender = self.send_command_node.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
             match sender.send(NodeCommand::AddSender(*dst_id, dst_sender)) {
-                Ok(()) => println!("✅ CONTROLLER: NodeCommand::AddSender sent successfully"),
+                Ok(()) => { },
                 Err(e) => {
-                    println!("❌ CONTROLLER: FAILED to send NodeCommand::AddSender: {}", e);
                     return Err(ControllerError::ChannelSend(e.to_string()));
                 }
             }
         }
-
-        println!("✅ CONTROLLER: Sender added from {} to {} (no validation)", id, dst_id);
+        
         Ok(())
     }
 
     // ================================ Cleanup Methods ================================
 
     fn cleanup_drone(&mut self, id: &NodeId) {
-        println!("🧹 CONTROLLER: Cleaning up drone {}", id);
 
         // Send crash command to drone
         if let Some(sender) = self.send_command_drone.get(id) {
@@ -1081,7 +983,6 @@ impl ControllerHandler {
     }
 
     fn cleanup_client(&mut self, id: &NodeId) {
-        println!("🧹 CONTROLLER: Cleaning up client {}", id);
 
         self.node_types.remove(id);
         self.packet_senders.remove(id);
@@ -1091,7 +992,6 @@ impl ControllerHandler {
     }
 
     fn cleanup_server(&mut self, id: &NodeId) {
-        println!("🧹 CONTROLLER: Cleaning up server {}", id);
 
         self.node_types.remove(id);
         self.packet_senders.remove(id);
@@ -1106,13 +1006,13 @@ impl ControllerHandler {
         self.node_types.get(id) == Some(&NodeType::Drone)
     }
 
-    pub(crate) fn is_client(&self, id: &NodeId) -> bool {
-        self.node_types.get(id) == Some(&NodeType::Client)
-    }
+    // pub(crate) fn is_client(&self, id: &NodeId) -> bool {
+    //     self.node_types.get(id) == Some(&NodeType::Client)
+    // }
 
-    pub(crate) fn is_server(&self, id: &NodeId) -> bool {
-        self.node_types.get(id) == Some(&NodeType::Server)
-    }
+    // pub(crate) fn is_server(&self, id: &NodeId) -> bool {
+    //     self.node_types.get(id) == Some(&NodeType::Server)
+    // }
 
     pub(crate) fn get_node_type(&self, id: &NodeId) -> Option<&NodeType> {
         self.node_types.get(id)
@@ -1129,7 +1029,7 @@ impl ControllerHandler {
             return Err(ControllerError::InvalidOperation("No available IDs".to_string()));
         }
 
-        let random_index = rand::thread_rng().gen_range(0..available_ids.len());
+        let random_index = thread_rng().gen_range(0..available_ids.len());
         Ok(available_ids[random_index])
     }
 
@@ -1208,49 +1108,36 @@ impl ControllerHandler {
     // ================================ Message Helpers ================================
 
     fn send_graph_update(&self, action: GraphAction) -> Result<(), ControllerError> {
-        println!("🚀 CONTROLLER: Sending GraphAction: {:?}", action);
         match self.graph_action_sender.try_send(action) {
             Ok(()) => {
-                println!("✅ CONTROLLER: GraphAction sent successfully");
                 Ok(())
             }
             Err(e) => {
-                println!("❌ CONTROLLER: FAILED to send GraphAction: {}", e);
-                println!("❌ CONTROLLER: graph_action_sender disconnected!");
                 Err(ControllerError::ChannelSend(format!("Graph update failed: {}", e)))
             }
         }
     }
 
     pub(crate) fn send_success_message(&self, msg: &str) {
-        println!("📤 CONTROLLER: Attempting to send success message: {}", msg);
         match self.message_sender.try_send(MessageType::Ok(msg.to_string())) {
-            Ok(()) => println!("✅ CONTROLLER: Success message sent successfully"),
-            Err(e) => {
-                println!("❌ CONTROLLER: FAILED to send success message: {}", e);
-                println!("❌ CONTROLLER: message_sender disconnected!");
+            Ok(()) => {},
+            Err(_) => {
             }
         }
     }
 
     pub(crate) fn send_info_message(&self, msg: &str) {
-        println!("📤 CONTROLLER: Attempting to send info message: {}", msg);
         match self.message_sender.try_send(PacketSent(msg.to_string())) {
-            Ok(()) => println!("✅ CONTROLLER: Info message sent successfully"),
-            Err(e) => {
-                println!("❌ CONTROLLER: FAILED to send info message: {}", e);
-                println!("❌ CONTROLLER: message_sender disconnected!");
+            Ok(()) => {},
+            Err(_) => {
             }
         }
     }
 
     pub(crate) fn send_error_message(&self, msg: &str) {
-        println!("📤 CONTROLLER: Attempting to send error message: {}", msg);
         match self.message_sender.try_send(Error(msg.to_string())) {
-            Ok(()) => println!("✅ CONTROLLER: Error message sent successfully"),
-            Err(e) => {
-                println!("❌ CONTROLLER: FAILED to send error message: {}", e);
-                println!("❌ CONTROLLER: message_sender disconnected!");
+            Ok(()) => {},
+            Err(_) => {
             }
         }
     }

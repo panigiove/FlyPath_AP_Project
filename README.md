@@ -1,20 +1,39 @@
 # FlyPath_AP_Project
-This is our project for the Advance Programming course
 
-It's composed by four main component:
--Controller
--Client
--Server
--Initializer
+This repository contains the project for the Advanced Programming course, developed by Malandra Martina, Panighel Giovanni, and Ye Daniele.
 
-# Controller
+It is composed of four main components:
+- **Client** (Ye Daniele)
+- **Controller** (Malandra Martina)
+- **Initializer** (All)
+- **Server** (Panighel Giovanni)
 
-# Client
+How to run:
 
-# Server
+```bash
+cargo run DA COMPLETARE
+```
+
+## Client
+
+## Controller
+
+This component interacts with the entire network. Its UI is composed of three sections:
+
+### Network Graph Panel
+This area allows direct interaction with the network. The network is represented as a graph, and each node has a label corresponding to its `NodeId`.  
+To interact with the network, you must first click on one or two nodes, or an edge.
+
+### Network Controls Panel
+This section contains a list of buttons that become active after selecting some graph components.
+
+### Messages Panel
+This area displays feedback about what is happening in the network.
+
+## Server
 The chat server implementation is Giovanni Panighel's individual contribution, and it provides the basic needs for client to communicate from each other.
 
-## Message Handling
+### Message Handling
 Once a `ChatRequest` message is received, the server will perform various action, based on the content of the message:
  - `ClientList`: will provide the list of the client registred to the chat services and will send back a `ClientList(Vec<NodeId>)`
  - `Register(NodeId)`: will add the client with `NodeId` to the chat services
@@ -24,7 +43,7 @@ If a client attempt to retrieve the `ClientList` or send a `MessageFrom` while i
 
 all responses will be send encapsulated inside a `ChatResponse` message.
 
-## Network Management
+### Network Management
 Our chat server has a component called `NetworkManager` that provide the resources and functionality to manage the network topology known to the server and to calculate the optimal path from the server to a known client.
 
 Every drone in the topology has two parameters that indicate respectively the amount of packet successfully sent through and the total  

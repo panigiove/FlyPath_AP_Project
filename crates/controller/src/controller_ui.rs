@@ -6,7 +6,6 @@ use egui::Context;
 use wg_2024::network::NodeId;
 use client::ui::UiState;
 use client::ui::ClientState;
-use crate::controller_handler::ControllerHandler;
 use crate::utility::{ButtonEvent, ButtonsMessages, GraphAction, MessageType, NodeType};
 use crate::view::GraphApp;
 use crate::view::ButtonWindow;
@@ -28,36 +27,34 @@ impl ControllerUi {
         button_event_sender: Sender<ButtonEvent>,
         message_receiver: Receiver<MessageType>,
         message_sender: Sender<MessageType>,
-        client_state_receiver: Receiver<(NodeId, ClientState)>, // ← AGGIUNGI QUESTA RIGA
+        client_state_receiver: Receiver<(NodeId, ClientState)>,
         connections: HashMap<NodeId, Vec<NodeId>>,
         node_types: HashMap<NodeId, NodeType>
     ) -> Self {
-        
-        let (node_clicked_sender, node_clicked_receiver) = unbounded::<NodeId>();
+
         let (button_messages_sender, button_messages_receiver) = unbounded::<ButtonsMessages>();
-        let (edge_clicked_sender, _edge_clicked_receiver) = unbounded::<(NodeId, NodeId)>();
         
+        let (node_clicked_sender, node_clicked_receiver) = unbounded::<NodeId>(); // ✅ RIMOSSO: (NodeId) -> NodeId
+
         let graph_app = GraphApp::new(
-            cc,
             connections,
             node_types,
             graph_updates_receiver,
             node_clicked_sender,
-            edge_clicked_sender,
             button_messages_receiver,
             message_sender.clone(),
             client_ui_state,
             client_state_receiver
         );
-        
+
         let button_window = ButtonWindow::new(
             node_clicked_receiver,
             button_messages_sender,
             button_event_sender
         );
-        
+
         let messages_window = MessagesWindow::new(message_receiver);
-        
+
         message_sender.send(MessageType::Ok("System initialized".to_string())).ok();
 
         Self {
@@ -70,27 +67,36 @@ impl ControllerUi {
 
 impl ControllerUi {
     pub fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+        
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.button_window.clear_selection();
+        }
+
         self.button_window.update();
         self.messages_window.update();
         self.graph_app.handle_pending_events();
+        
+        self.graph_app.update();
     }
 
     pub fn render(&mut self, ctx: &Context, frame: &mut Frame) {
         egui::TopBottomPanel::bottom("Message panel")
-            .resizable(true)
-            .default_height(180.0)
+            .resizable(false)           
+            .exact_height(200.0)
             .show(ctx, |ui| {
                 self.messages_window.render(ui);
             });
 
         egui::SidePanel::right("Possible actions")
-            .resizable(true)
-            .default_width(320.0)
+            .resizable(false)
+            .exact_width(350.0)
             .show(ctx, |ui| {
                 self.button_window.render(ui);
             });
-        
-        self.graph_app.update(ctx, frame);
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.graph_app.render(ui);
+        });
     }
 
     pub fn get_graph_app(&self) -> &GraphApp {
