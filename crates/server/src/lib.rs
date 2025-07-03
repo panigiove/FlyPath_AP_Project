@@ -219,8 +219,8 @@ impl ChatServer {
                     }
                 } else {
                     info!(
-                        "Packet with session id {} sent successfully to {}",
-                        packet.session_id, next_hop
+                        "Packet with session id {} and fragment index {} from ChatServer {} sent successfully to {}, destination is {}",
+                        packet.session_id, packet.get_fragment_index(), self.id, next_hop, packet.routing_header.destination().unwrap()
                     );
                     let event = NodeEvent::PacketSent(packet.clone());
                     self.send_event(event);

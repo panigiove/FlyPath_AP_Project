@@ -422,7 +422,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         nodes.insert(node.id, NodeType::Server);
 
         let node_id = node.id;
-        let handle = thread::spawn(move || {
+        let handle = thread::Builder::new().name(format!("{}", node_id)).spawn(move || {
             let mut node = ChatServer::new(
                 node_id,
                 sender_node_event,
@@ -431,7 +431,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
                 sender_hash
             );
             node.run();
-        });
+        }).expect("Impossibile spawnare il thread ChatServer");
         thread_handles.push(handle);
     }
 
