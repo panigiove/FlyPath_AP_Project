@@ -28,7 +28,7 @@ pub struct GraphApp {
 
     pub receiver_updates: Receiver<GraphAction>,
     pub sender_node_clicked: Sender<NodeId>,
-    pub reciver_buttom_messages: Receiver<ButtonsMessages>,
+    pub receiver_bottom_messages: Receiver<ButtonsMessages>,
     pub sender_message_type: Sender<MessageType>,
     pub client_state_receiver: Receiver<(NodeId, ClientState)>,
 
@@ -123,7 +123,7 @@ impl GraphApp {
         node_types: HashMap<NodeId, NodeType>,
         receiver_updates: Receiver<GraphAction>,
         sender_node_clicked: Sender<NodeId>,
-        reciver_buttom_messages: Receiver<ButtonsMessages>,
+        receiver_bottom_messages: Receiver<ButtonsMessages>,
         sender_message_type: Sender<MessageType>,
         client_ui_state: Arc<Mutex<UiState>>,
         client_state_receiver: Receiver<(NodeId, ClientState)>,
@@ -162,8 +162,7 @@ impl GraphApp {
                 }
             }
         }
-
-        // Crea Graph per egui_graphs
+        
         let g = to_graph(&petgraph);
 
         let mut app = Self {
@@ -175,7 +174,7 @@ impl GraphApp {
             client_ui_state,
             receiver_updates,
             sender_node_clicked, // ✅ AGGIORNATO: nome campo aggiornato
-            reciver_buttom_messages,
+            receiver_bottom_messages,
             sender_message_type,
             client_state_receiver,
             fit_to_screen_enabled: true,
@@ -434,7 +433,7 @@ impl GraphApp {
         }
 
         // Messaggi da ButtonWindow
-        if let Ok(message) = self.reciver_buttom_messages.try_recv() {
+        if let Ok(message) = self.receiver_bottom_messages.try_recv() {
             match message {
                 ButtonsMessages::DeselectNode(id) => {
                     self.selected_nodes.retain(|&node_id| node_id != id);
@@ -601,17 +600,9 @@ impl GraphApp {
             Err("Uno o entrambi i nodi non trovati".to_string())
         }
     }
-
-    // pub fn handle_keyboard_input(&mut self, ctx: &Context){
-    //     // ✅ RIMOSSO: La gestione di ESC è ora solo nel ButtonWindow
-    //     // Il ButtonWindow gestirà ESC e invierà ClearAllSelections al GraphApp
-    //
-    //     // Altre eventuali gesture da tastiera possono rimanere qui
-    //     // (per ora nessuna)
-    //}
 }
 
-// Implementazione Drawable per GraphApp
+
 impl Drawable for GraphApp {
     fn update(&mut self) {
     }
@@ -619,13 +610,9 @@ impl Drawable for GraphApp {
     fn render(&mut self, ui: &mut egui::Ui) {
         // Gestisce eventi pendenti
         self.handle_pending_events();
-
-        // self.handle_keyboard_input(ui.ctx());
-
-        // Aggiorna egui_graph se necessario
+        
         self.update_egui_graph();
-
-        // ✅ MECCANISMO CORRETTO: Gestisce i click sui nodi dopo il rendering
+        
         if self.clicked_this_frame {
             if let Some(&node_index) = self.g.selected_nodes().last() {
                 for (node_id, idx) in &self.node_id_to_index {

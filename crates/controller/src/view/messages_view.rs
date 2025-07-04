@@ -1,12 +1,11 @@
 use crossbeam_channel::Receiver;
 use egui::{Color32, RichText};
-use crate::utility::MessageType;
+use crate::utility::{MessageType, ORANGE, LIGHT_BLUE, DARK_BLUE, LIGHT_ORANGE, DARK_GREEN};
 
-// NUOVO IMPORT
 use crate::drawable::{Drawable, PanelDrawable, PanelType};
 
 pub struct MessagesWindow {
-    pub messages_reciver: Receiver<MessageType>,
+    pub messages_receiver: Receiver<MessageType>,
     pub log: Vec<MessageType>,
     pub max_messages: usize,
     pub auto_scroll: bool,
@@ -15,7 +14,7 @@ pub struct MessagesWindow {
 impl MessagesWindow {
     pub fn new(receiver: Receiver<MessageType>) -> Self {
         Self {
-            messages_reciver: receiver,
+            messages_receiver: receiver,
             log: Vec::new(),
             max_messages: 1000,
             auto_scroll: true,
@@ -23,7 +22,7 @@ impl MessagesWindow {
     }
 
     pub fn handle_incoming_messages(&mut self) {
-        while let Ok(message) = self.messages_reciver.try_recv() {
+        while let Ok(message) = self.messages_receiver.try_recv() {
             self.log.push(message);
             if self.log.len() > self.max_messages {
                 self.log.remove(0);
@@ -32,7 +31,6 @@ impl MessagesWindow {
     }
 }
 
-// NUOVA IMPLEMENTAZIONE DRAWABLE
 impl Drawable for MessagesWindow {
     fn update(&mut self) {
         self.handle_incoming_messages();
@@ -68,32 +66,27 @@ impl Drawable for MessagesWindow {
                         match message {
                             MessageType::Error(t) => {
                                 let text = RichText::new(format!("❌ {}", t))
-                                    .color(egui::Color32::from_rgb(234, 162, 124));
+                                    .color(ORANGE);
                                 ui.label(text);
                             }
                             MessageType::Ok(t) => {
                                 let text = RichText::new(format!("✅ {}", t))
-                                    .color(egui::Color32::from_rgb(232, 187, 166));
+                                    .color(LIGHT_BLUE);
                                 ui.label(text);
                             }
                             MessageType::PacketSent(t) => {
                                 let text = RichText::new(format!("📤 {}", t))
-                                    .color(egui::Color32::from_rgb(14, 137, 145));
+                                    .color(DARK_GREEN);
                                 ui.label(text);
                             }
                             MessageType::PacketDropped(t) => {
                                 let text = RichText::new(format!("📥 {}", t))
-                                    .color(egui::Color32::from_rgb(12, 49, 59));
+                                    .color(LIGHT_ORANGE);
                                 ui.label(text);
                             }
                             MessageType::Info(t) => {
                                 let text = RichText::new(format!("ℹ️ {}", t))
-                                    .color(egui::Color32::from_rgb(141, 182, 188));
-                                ui.label(text);
-                            }
-                            _ => {
-                                let text = RichText::new("❓ Unclassified message")
-                                    .color(egui::Color32::GRAY);
+                                    .color(DARK_BLUE);
                                 ui.label(text);
                             }
                         }
@@ -123,9 +116,9 @@ impl PanelDrawable for MessagesWindow {
     }
 
     fn preferred_size(&self) -> Option<egui::Vec2> {
-        Some(egui::Vec2::new(0.0, 200.0)) // ✅ Altezza fissa 200px
+        Some(egui::Vec2::new(0.0, 200.0))
     }
     fn is_resizable(&self) -> bool {
-        false // ✅ Non ridimensionabile
+        false
     }
 }

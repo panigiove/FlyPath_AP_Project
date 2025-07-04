@@ -4,12 +4,11 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::{egui, Frame};
 use initializer::start;
 use std::collections::HashMap;
-use std::fs::File;
 use std::process;
 use std::sync::{Arc, Mutex};
 use egui::Context;
 use wg_2024::network::NodeId;
-use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp, MessageType, NodeType};
+use controller::{ButtonEvent, ControllerUi, GraphAction, MessageType, NodeType};
 
 // TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
 // TODO: gentle crash
@@ -48,9 +47,9 @@ fn main() -> eframe::Result {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1240.0, 1080.0])  // Il doppio: 620→1240, 540→1080
-            .with_min_inner_size([800.0, 600.0])  // Dimensione minima (opzionale)
-            .with_title("FLYPATH - Network Controller"), // Titolo personalizzato (opzionale)
+            .with_inner_size([1240.0, 1080.0])
+            .with_min_inner_size([800.0, 600.0])
+            .with_title("FLYPATH - Network Controller"),
         ..Default::default()
     };
 
@@ -77,12 +76,7 @@ struct App {
 }
 
 impl App {
-    
-    //cc: &eframe::CreationContext<'_>, client_ui_state: Arc<Mutex<UiState>>,
-    //                graph_updates_receiver: Receiver<GraphAction>, button_event_sender: Sender<ButtonEvent>,
-    //                message_receiver: Receiver<MessageType>, connections: HashMap<NodeId, Vec<NodeId>>,
-    //                node_types: HashMap<NodeId, NodeType>
-    fn new (cc: &eframe::CreationContext<'_>, ui_state: UiState, button_sender: Sender<ButtonEvent>,
+    fn new (_cc: &eframe::CreationContext<'_>, ui_state: UiState, button_sender: Sender<ButtonEvent>,
             graph_action_receiver: Receiver<GraphAction>,
             message_receiver: Receiver<MessageType>,
             message_sender: Sender<MessageType>,
@@ -91,13 +85,12 @@ impl App {
             nodes: HashMap<NodeId, NodeType>) -> Self {
         let client_ui_state =  Arc::new(Mutex::new(ui_state));
         let controller_ui = ControllerUi::new(
-            cc,
             client_ui_state.clone(),
             graph_action_receiver,
             button_sender,
             message_receiver,
             message_sender,
-            client_state_receiver, // ← AGGIUNGI QUESTA RIGA
+            client_state_receiver,
             connections,
             nodes
         );
@@ -109,7 +102,6 @@ impl App {
     }
 }
 
-// &mut self, ctx: &Context, frame: &mut Frame
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         self.controller_ui.update(ctx, _frame);

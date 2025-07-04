@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::{egui, App, Frame};
+use eframe::{egui, Frame};
 use egui::Context;
 use wg_2024::network::NodeId;
 use client::ui::UiState;
@@ -21,7 +21,6 @@ pub struct ControllerUi {
 
 impl ControllerUi {
     pub fn new(
-        cc: &eframe::CreationContext<'_>,
         client_ui_state: Arc<Mutex<UiState>>,
         graph_updates_receiver: Receiver<GraphAction>,
         button_event_sender: Sender<ButtonEvent>,
@@ -66,7 +65,7 @@ impl ControllerUi {
 }
 
 impl ControllerUi {
-    pub fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+    pub fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.button_window.clear_selection();
@@ -79,7 +78,7 @@ impl ControllerUi {
         self.graph_app.update();
     }
 
-    pub fn render(&mut self, ctx: &Context, frame: &mut Frame) {
+    pub fn render(&mut self, ctx: &Context, _frame: &mut Frame) {
         egui::TopBottomPanel::bottom("Message panel")
             .resizable(false)           
             .exact_height(200.0)
