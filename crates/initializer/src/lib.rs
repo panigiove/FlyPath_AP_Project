@@ -25,7 +25,7 @@ use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
 use controller::{ButtonEvent, DroneGroup, GraphAction, MessageType, NodeType};
 use wg_2024::drone::Drone as DroneTrait;
-use client::ui::{ClientState, UiState};
+use client::ui::{ClientState};
 use controller::controller_handler::ControllerHandler;
 
 #[derive(Debug, Error)]
@@ -191,7 +191,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
 
         nodes.insert(node.id, NodeType::Drone);
 
-        let mut drone: Option<Box <dyn DroneTrait>> = match index {
+        let drone: Option<Box <dyn DroneTrait>> = match index {
             0 => {
                 drones_types.insert(node_id, DroneGroup::RustInPeace);
                 index = index + 1;
@@ -392,8 +392,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
 
         thread_handles.push(handle);
     }
-
-    // ✅ FIXED: Start server threads with proper packet_senders registration
+    
     for node in cfg.server.iter() {
         let mut sender_hash = HashMap::new();
         for &adj in &node.connected_drone_ids {
@@ -421,8 +420,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         receivers_node_event.insert(node.id, sender_receiver_node_event.get(&node.id)
             .ok_or(format!("Node event sender not found for node {}", node.id))?
             .1.clone());
-
-        // ✅ CRITICAL FIX: Add server to packet_senders (this was missing!)
+        
         packet_senders.insert(node.id, sender_receiver_packet.get(&node.id)
             .ok_or(format!("Packet sender not found for node {}", node.id))?
             .0.clone());
@@ -458,8 +456,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         message_sender.clone(), client_state_sender,
         drones_counter
     );
-
-    // 🚀 Controller thread
+    
     let controller_handle = thread::spawn(move || {
         controller_handler.run();
     });
@@ -580,7 +577,7 @@ fn is_bidirectional(cfg: &Config) -> bool {
 
 //the Network Initialization File should represent a network where clients and servers are at the edges of the network
 fn are_client_server_at_edge(cfg: &Config) -> bool {
-    let drone_ids: std::collections::HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
+    let drone_ids: HashSet<_> = cfg.drone.iter().map(|d| d.id).collect();
 
     let cleaned_drones = cfg
         .drone
