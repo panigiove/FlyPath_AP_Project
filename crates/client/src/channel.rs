@@ -44,7 +44,7 @@ impl ChannelManager {
                     self.tx_ctrl
                         .send(NodeEvent::PacketSent(packet.clone()))
                         .expect("Failed to transmit to CONTROLLER");
-                    info!("{}: Packet sent successfully to node {}", thread::current().name().unwrap_or("unnamed"),nid);
+                    // info!("{}: Packet sent successfully to node {}", thread::current().name().unwrap_or("unnamed"),nid);
                 }
                 Err(_) => {
                     warn!("{}: Failed to send packet to node {}", thread::current().name().unwrap_or("unnamed"), nid);

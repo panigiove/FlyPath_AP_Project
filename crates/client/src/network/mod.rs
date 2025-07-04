@@ -274,17 +274,17 @@ impl NetworkState {
                 if let Some(sidx) = self.id_to_idx.get(sid) {
                     if distances.contains_key(sidx) {
                         if let Some(path) = self._reconstruct_path(&distances, *sidx) {
-                            debug!("{}: New path computed {:?}", self.start_id, path);
+                            // debug!("{}: New path computed {:?}", self.start_id, path);
                             self.routing_table.insert(*sid, path);
                         }
                     } else if self.should_flood_after_missing() {
-                        debug!("Should flood after missing a route");
+                        // debug!("Should flood after missing a route");
                         return false;
                     } else {
-                        debug!("No path elaborated but should not flood yet");
+                        // debug!("No path elaborated but should not flood yet");
                     }
                 } else {
-                    warn!("Index of Server {:?} doesnt exist", sid)
+                    // warn!("Index of Server {:?} doesnt exist", sid)
                 }
             }
         }
@@ -432,10 +432,10 @@ impl NetworkManager {
             self.state.add_link(prev_id, curr_id, prev_type, curr_type, 1);
         }
 
-        info!("{}: flood_response with path: {:?}, topology: {:?}", self.my_id, flood_response.path_trace ,self.state.topology);
+        info!("{}: FLOOD RESPONSE path:{:?}, topology:{:?}, discovered new servers: {:?}", self.my_id, flood_response.path_trace ,self.state.topology, new_servers);
 
         if new_servers.is_empty() {
-            debug!("{}: No new servers discovered in flood response.", self.my_id);
+            // debug!("{}: No new servers discovered in flood response.", self.my_id);
             return None;
         }
 

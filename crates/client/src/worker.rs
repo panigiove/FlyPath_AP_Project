@@ -46,7 +46,8 @@ impl Worker {
     }
 
     pub fn run(&mut self) {
-        info!("Worker {:?} starting", self.my_id);
+        // info!("{:}: Worker running", self.my_id);
+        self.network.send_flood_request();
         loop {
             let (mut cmd, mut inter, mut pack) = (None, None, None);
             select_biased! {
@@ -87,11 +88,9 @@ impl Worker {
             if let Some(inter) = inter {
                 match inter {
                     RefreshTopology => {
-                        debug!("UI: Send Flood Request");
                         self.network.send_flood_request();
                     }
                     AskClientList => {
-                        debug!("UI: Broadcast ClientList Request");
                         let servers: Vec<_> =
                             self.network.state.server_list.iter().cloned().collect();
                         for server in servers {
@@ -104,10 +103,6 @@ impl Worker {
                     } => {
                         if let Some(sids) = self.message.clients.get(&destination) {
                             if let Some(&sid) = sids.iter().next() {
-                                debug!(
-                                    "UI: Send Message to: {:?} with message {:?} through: {:?}",
-                                    destination, body, sid
-                                );
                                 let request = ChatRequest::SendMessage {
                                     from: self.my_id,
                                     to: destination,
@@ -126,7 +121,7 @@ impl Worker {
             }
 
             if self.network.state.should_flood() {
-                info!("{}: Network State expired, ask for flooding", self.my_id);
+                info!("{}: Network State EXPIRED, ask for flooding", self.my_id);
                 self.network.send_flood_request();
             }
         }
@@ -138,7 +133,7 @@ impl Worker {
         if let Some(from) = packet.routing_header.source() {
             match &packet.pack_type {
                 FloodRequest(request) => {
-                    debug!("{}: PACK: flood request handling from {:?}", self.my_id, from);
+                    debug!("{}: FLOOD REQUEST HANDLING from {:?}", self.my_id, from);
 
                     let mut response = request
                         .get_incremented(self.my_id, Client)
@@ -182,7 +177,7 @@ impl Worker {
                         if let Some(server_reach) =
                             self.network.update_network_from_flood_response(response)
                         {
-                            info!("{}: New servers discovered: {:?}",self.my_id, server_reach);
+                            // info!("{}: New servers discovered: {:?}",self.my_id, server_reach);
                             self._send_buffer(&server_reach);
                             self._registry_and_client_list(&server_reach);
                         }
@@ -198,7 +193,7 @@ impl Worker {
                     }
                 }
                 Ack(ack) => {
-                    debug!("{}: received ack session: {} ack: {}", self.my_id, session, ack);
+                    debug!("{}: ACK with session: {} ack: {}", self.my_id, session, ack);
                     self.network.state.increment_weight_along_path(&path, -1);
                     self.message.ack_and_build_message(ack, session);
                 }
