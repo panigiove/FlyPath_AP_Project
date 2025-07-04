@@ -31,13 +31,15 @@ impl NetworkManager {
             start_time: SystemTime::now(),
         }
     }
-    pub fn update_from_flood_response(&mut self, flood_response: FloodResponse) {
+    pub fn update_topology(&mut self, flood_response: FloodResponse) {
         for n in 0..flood_response.path_trace.len() {
             if !self.topology.contains_key(&flood_response.path_trace[n].0) && !(flood_response.path_trace[n].1 == NodeType::Server) {
                     self.topology
                         .insert(flood_response.path_trace[n].0, (HashSet::new(), 1.0, 1.0));
                     if flood_response.path_trace[n].1 == NodeType::Client {
-                        self.client_list.insert(flood_response.path_trace[n].0);
+                        if !self.client_list.contains(&flood_response.path_trace[n].0) {
+                            self.client_list.insert(flood_response.path_trace[n].0);
+                        }
                 }
             }
             if n > 0 {
@@ -148,9 +150,6 @@ impl NetworkManager {
         }
 
         queue.push_back(self.server_id);
-        /*for node in self.topology.get(&self.server_id).unwrap().0.iter() {
-            queue.push_back(*node);
-        }*/
 
         dist.insert(self.server_id, *psp.get(&self.server_id).unwrap());
 
@@ -200,10 +199,14 @@ impl NetworkManager {
             false
         }
     }
-    pub fn should_flood_request(&self) -> bool {
+    pub fn should_flood_request(&mut self) -> bool {
         let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(36000));
 
-        elapsed > self.flood_interval || self.n_errors.rem_euclid(7) == 0 || self.n_dropped.rem_euclid(3) == 0
+        let res = elapsed > self.flood_interval || self.n_errors == 7 || self.n_dropped == 5;
+        self.n_errors = 0;
+        self.n_dropped = 0;
+
+        res
     }
     pub fn get_client_list(&self) -> Vec<NodeId> {
         self.client_list.iter().cloned().collect()

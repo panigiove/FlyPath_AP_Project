@@ -81,6 +81,7 @@ impl ServerMessageManager {
         &mut self,
         key: &(u64, NodeId),
         session_id: u64,
+        client_list: &Vec<NodeId>,
     ) -> Option<SentMessageWrapper> {
 
         let sent_msg_wrapper;
@@ -107,9 +108,15 @@ impl ServerMessageManager {
                     Some(sent_msg_wrapper)
                 }
                 ChatRequest::Register(node_id) => {
-                    self.add_to_registered_client(node_id);
-                    info!("Client with {:?} id added to client list", node_id,);
-                    None
+                    if client_list.contains(&node_id) {
+                        self.add_to_registered_client(node_id);
+                        info!("Client with {:?} id added to client list", node_id,);
+                        None
+                    }
+                    else {
+                        warn!("Client {:?} not discovered", node_id);
+                        None
+                    }
                 }
                 ChatRequest::SendMessage { from, to, message } => {
                     if !self.is_registered(&key.1) || !self.is_registered(&to) {

@@ -12,7 +12,7 @@ use log::{info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
 use wg_2024::network::*;
-use wg_2024::packet::{FloodRequest, NodeType, Packet, PacketType};
+use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet, PacketType};
 
 #[derive(Clone, Debug)]
 pub struct ChatServer {
@@ -66,6 +66,9 @@ impl ChatServer {
             }
             
             self.try_resend();
+            if self.network_manager.should_flood_request(){
+                self.flood_initializer();
+            }
         }
     }
 
@@ -81,6 +84,7 @@ impl ChatServer {
                 self.network_manager.generate_all_routes();
             }
             NodeCommand::FromShortcut(pack) => {
+                info!("{} with session id {} from arrived via shortcut", pack.pack_type, pack.session_id);
                 self.packet_handler(pack);
             }
         }
@@ -99,11 +103,11 @@ impl ChatServer {
                         .server_message_manager
                         .get_incoming_fragments(key)
                         .unwrap();
-                    info!("Message {:?} received", recv_msg);
+                    info!("Complete message {:?} received", recv_msg);
                     self.send_event(NodeEvent::MessageRecv(recv_msg));
 
                     if let Some(wrapper) =
-                        self.server_message_manager.message_handling(key, self.last_session_id + 1)
+                        self.server_message_manager.message_handling(key, self.last_session_id + 1, &self.network_manager.get_client_list())
                     {
                         self.last_session_id += 1;
                         self.send_event(NodeEvent::CreateMessage(wrapper.clone()));
@@ -141,38 +145,63 @@ impl ChatServer {
             }
             //da controllare
             PacketType::Nack(nack) => {
+                info!("Nack retrieved: {:?}", nack);
                 self.network_manager
                     .update_from_nack(&packet.routing_header.hops, nack.clone());
 
-                let wrapper = self
-                    .server_message_manager
-                    .get_outgoing_packet(&packet.session_id)
-                    .unwrap();
-                let fragment_to_resend =
-                    wrapper.get_fragment(nack.fragment_index as usize).unwrap();
-                let mut packet_to_send = Packet {
-                    routing_header: SourceRoutingHeader::initialize(
-                        self.network_manager.get_route(&wrapper.destination).unwrap()
-                    ),
-                    session_id: wrapper.session_id,
-                    pack_type: PacketType::MsgFragment(fragment_to_resend),
-                };
+                if let Some(wrapper) = self.server_message_manager.get_outgoing_packet(&packet.session_id){
+                    let fragment_to_resend =
+                        wrapper.get_fragment(nack.fragment_index as usize).unwrap();
+                    let mut packet_to_send = Packet {
+                        routing_header: SourceRoutingHeader::initialize(
+                            self.network_manager.get_route(&wrapper.destination).unwrap()
+                        ),
+                        session_id: wrapper.session_id,
+                        pack_type: PacketType::MsgFragment(fragment_to_resend),
+                    };
 
-                self.send_packet(&mut packet_to_send);
+                    self.send_packet(&mut packet_to_send);
 
-                if self.network_manager.should_flood_request() {
-                    self.flood_initializer();
+                    if self.network_manager.should_flood_request() {
+                        self.flood_initializer();
+                    }
+                }
+                else{
+                    info!("Unable to retrieve fragment with {} to resend. Caused by nack from {}", packet.session_id, packet.routing_header.source().unwrap());
                 }
             }
             PacketType::FloodRequest(flood_request) => {
                 let updated_flood_request =
                     flood_request.get_incremented(self.id, NodeType::Server);
-                let mut response = updated_flood_request.generate_response(packet.session_id);
+                let mut source_routing = SourceRoutingHeader::initialize(
+                    updated_flood_request.path_trace
+                        .iter()
+                        .cloned()
+                        .map(|(id, _)| id)
+                        .rev()
+                        .collect(),
+                );
+                if let Some(destination) = source_routing.destination() {
+                    if destination != updated_flood_request.initiator_id {
+                        source_routing.append_hop(updated_flood_request.initiator_id);
+                    }
+                }
+                let flood_response = FloodResponse {
+                    flood_id: updated_flood_request.flood_id,
+                    path_trace: updated_flood_request.path_trace.clone(),
+                };
+                let mut response = Packet::new_flood_response(
+                    source_routing,
+                    packet.session_id,
+                    flood_response.clone(),
+                );
+                self.network_manager.update_topology(flood_response);
                 self.send_packet(&mut response);
             }
             PacketType::FloodResponse(flood_response) => {
+                info!("Flood response received: {:?}", flood_response);
                 self.network_manager
-                    .update_from_flood_response(flood_response);
+                    .update_topology(flood_response);
             }
         }
     }
@@ -193,6 +222,10 @@ impl ChatServer {
                         self.server_buffer.get_mut(&dest).unwrap().push(packet);
                     }
                 }
+            }
+
+            if !self.server_buffer.is_empty(){
+                self.network_manager.update_errors();
             }
         }
     }
@@ -219,8 +252,8 @@ impl ChatServer {
                     }
                 } else {
                     info!(
-                        "Packet with session id {} and fragment index {} from ChatServer {} sent successfully to {}, destination is {}",
-                        packet.session_id, packet.get_fragment_index(), self.id, next_hop, packet.routing_header.destination().unwrap()
+                        "{} with session id {} and fragment index {} from ChatServer {} sent successfully to {}, destination is {}",
+                        packet.pack_type, packet.session_id, packet.get_fragment_index(), self.id, next_hop, packet.routing_header.destination().unwrap()
                     );
                     let event = NodeEvent::PacketSent(packet.clone());
                     self.send_event(event);
