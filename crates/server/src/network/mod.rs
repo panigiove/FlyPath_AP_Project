@@ -1,7 +1,6 @@
 use log::{info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, SystemTime};
-use log::Level::Warn;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 
@@ -42,18 +41,18 @@ impl NetworkManager {
                 }
             }
             if n > 0 {
-                self.topology
-                    .get_mut(&flood_response.path_trace[n].0)
-                    .unwrap()
-                    .0
-                    .insert(flood_response.path_trace[n - 1].0);
+                if flood_response.path_trace[n - 1].1 != NodeType::Server {
+                    if let Some(node) = self.topology.get_mut(&flood_response.path_trace[n].0) {
+                        node.0.insert(flood_response.path_trace[n - 1].0);
+                    }
+                }
             }
             if n < flood_response.path_trace.len() -1 {
-                self.topology
-                    .get_mut(&flood_response.path_trace[n].0)
-                    .unwrap()
-                    .0
-                    .insert(flood_response.path_trace[n + 1].0);
+                if flood_response.path_trace[n + 1].1 != NodeType::Server {
+                    if let Some(node) = self.topology.get_mut(&flood_response.path_trace[n].0) {
+                        node.0.insert(flood_response.path_trace[n + 1].0);
+                    }
+                }
             }
         }
 
