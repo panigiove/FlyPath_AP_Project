@@ -519,9 +519,14 @@ impl ControllerHandler {
             ));
         }
 
-        // ✅ FIX: Crea il Worker all'interno del thread
-        std::thread::spawn(move || {
+        // ✅ INSERT DATA STRUCTURES FIRST (before spawning thread)
+        self.packet_senders.insert(id, p_send);
+        self.connections.insert(id, Vec::new());
+        self.send_command_node.insert(id, node_command_send.clone());
+        self.receriver_node_event.insert(id, node_event_receiver);
 
+        // ✅ Now spawn the thread
+        std::thread::spawn(move || {
             let packet_send = HashMap::new();
             let mut worker = Worker::new(
                 id,
@@ -535,13 +540,37 @@ impl ControllerHandler {
             worker.run();
         });
 
-        // Insert dei dati DOPO aver avviato il thread
-        self.packet_senders.insert(id, p_send);
-        self.connections.insert(id, Vec::new());
-        self.send_command_node.insert(id, node_command_send);
-        self.receriver_node_event.insert(id, node_event_receiver);
-        
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // ✅ VERIFY CLIENT IS READY with timeout and retry
+        let mut ready = false;
+        for attempt in 0..10 { // Max 10 attempts (500ms total)
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Try to send a dummy command to verify the client is responsive
+            match node_command_send.try_send(NodeCommand::RemoveSender(255)) {
+                Ok(()) => {
+                    ready = true;
+                    println!("✅ Client {} ready after {}ms", id, (attempt + 1) * 50);
+                    break;
+                }
+                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                    // Channel full but connected - client is ready
+                    ready = true;
+                    println!("✅ Client {} ready (channel full) after {}ms", id, (attempt + 1) * 50);
+                    break;
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    // Client not ready yet, continue trying
+                    continue;
+                }
+            }
+        }
+
+        if !ready {
+            self.cleanup_client(&id);
+            return Err(ControllerError::InvalidOperation(
+                format!("Client {} failed to initialize within timeout", id)
+            ));
+        }
 
         Ok(())
     }
@@ -608,9 +637,15 @@ impl ControllerHandler {
         let (p_send, p_receiver) = unbounded::<Packet>();
         let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
         let (node_command_send, node_command_receiver) = unbounded::<NodeCommand>();
-        
-        std::thread::spawn(move || {
 
+        // ✅ INSERT DATA STRUCTURES FIRST (before spawning thread)
+        self.packet_senders.insert(id, p_send);
+        self.connections.insert(id, Vec::new());
+        self.send_command_node.insert(id, node_command_send.clone());
+        self.receriver_node_event.insert(id, node_event_receiver);
+
+        // ✅ Now spawn the thread
+        std::thread::spawn(move || {
             let packet_send = HashMap::new();
             let mut chat_server = ChatServer::new(
                 id,
@@ -619,17 +654,41 @@ impl ControllerHandler {
                 p_receiver,
                 packet_send
             );
-            
+
             chat_server.run();
         });
 
-        // Insert dei dati DOPO aver avviato il thread
-        self.packet_senders.insert(id, p_send);
-        self.connections.insert(id, Vec::new());
-        self.send_command_node.insert(id, node_command_send);
-        self.receriver_node_event.insert(id, node_event_receiver);
-        
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // ✅ VERIFY SERVER IS READY with timeout and retry
+        let mut ready = false;
+        for attempt in 0..10 { // Max 10 attempts (500ms total)
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Try to send a dummy command to verify the server is responsive
+            match node_command_send.try_send(NodeCommand::RemoveSender(255)) {
+                Ok(()) => {
+                    ready = true;
+                    println!("✅ Server {} ready after {}ms", id, (attempt + 1) * 50);
+                    break;
+                }
+                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                    // Channel full but connected - server is ready
+                    ready = true;
+                    println!("✅ Server {} ready (channel full) after {}ms", id, (attempt + 1) * 50);
+                    break;
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    // Server not ready yet, continue trying
+                    continue;
+                }
+            }
+        }
+
+        if !ready {
+            self.cleanup_server(&id);
+            return Err(ControllerError::InvalidOperation(
+                format!("Server {} failed to initialize within timeout", id)
+            ));
+        }
 
         Ok(())
     }
@@ -637,25 +696,56 @@ impl ControllerHandler {
     // ================================ Connection Management ================================
 
     fn add_connection(&mut self, id1: &NodeId, id2: &NodeId) -> Result<(), ControllerError> {
+        // ✅ ROBUST VERIFICATION: Check with retry for both nodes
+        println!("🔍 Verifying nodes {} and {} exist...", id1, id2);
 
+        let mut id1_ready = false;
+        let mut id2_ready = false;
+
+        // Check both nodes with multiple attempts
+        for attempt in 0..5 { // Max 5 attempts (250ms total)
+            if !id1_ready {
+                id1_ready = self.packet_senders.contains_key(id1) &&
+                    (self.send_command_drone.contains_key(id1) || self.send_command_node.contains_key(id1));
+            }
+
+            if !id2_ready {
+                id2_ready = self.packet_senders.contains_key(id2) &&
+                    (self.send_command_drone.contains_key(id2) || self.send_command_node.contains_key(id2));
+            }
+
+            if id1_ready && id2_ready {
+                println!("✅ Both nodes verified after {}ms", (attempt + 1) * 50);
+                break;
+            }
+
+            if attempt < 4 { // Don't sleep on last attempt
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+
+        // Final verification with detailed error reporting
+        if !id1_ready {
+            self.debug_node_state(id1);
+            return Err(ControllerError::NodeNotFound(*id1));
+        }
+        if !id2_ready {
+            self.debug_node_state(id2);
+            return Err(ControllerError::NodeNotFound(*id2));
+        }
+
+        // ✅ NETWORK VALIDATION
         if !self.check_network_before_add_connection(id1, id2) {
             return Err(ControllerError::NetworkConstraintViolation(
                 format!("Cannot add connection between {} and {}", id1, id2)
             ));
         }
 
-        // Verifica che entrambi i nodi esistano
-        if !self.packet_senders.contains_key(id1) {
-            return Err(ControllerError::NodeNotFound(*id1));
-        }
-        if !self.packet_senders.contains_key(id2) {
-            return Err(ControllerError::NodeNotFound(*id2));
-        }
-
+        // ✅ ADD SENDERS
         self.add_sender(id1, id2)?;
         self.add_sender(id2, id1)?;
 
-        // Update connections nelle strutture dati
+        // ✅ UPDATE CONNECTIONS
         if let Some(connections) = self.connections.get_mut(id1) {
             if !connections.contains(id2) {
                 connections.push(*id2);
@@ -667,11 +757,48 @@ impl ControllerHandler {
             }
         }
 
-        // IMPORTANTE: Invia AddEdge al UI
+        // ✅ SEND GRAPH UPDATE
         self.send_graph_update(AddEdge(*id1, *id2))?;
         self.send_success_message(&format!("Connection added between {} and {}", id1, id2));
 
         Ok(())
+    }
+
+    pub fn debug_node_state(&self, node_id: &NodeId) {
+        println!("=== 🔍 Debug Node {} ===", node_id);
+        println!("📋 In node_types: {}", self.node_types.contains_key(node_id));
+        println!("📦 In packet_senders: {}", self.packet_senders.contains_key(node_id));
+        println!("🎮 In send_command_drone: {}", self.send_command_drone.contains_key(node_id));
+        println!("💻 In send_command_node: {}", self.send_command_node.contains_key(node_id));
+        println!("🔗 In connections: {}", self.connections.contains_key(node_id));
+
+        if let Some(node_type) = self.node_types.get(node_id) {
+            println!("🏷️ Node type: {:?}", node_type);
+        }
+
+        if let Some(connections) = self.connections.get(node_id) {
+            println!("🔗 Connections ({}): {:?}", connections.len(), connections);
+        }
+
+        println!("========================");
+    }
+
+    // ✅ IMPROVED: Debug existing nodes with more details
+    pub fn debug_existing_nodes(&self) {
+        println!("=== 🌐 All Existing Nodes ===");
+        for (&node_id, &node_type) in &self.node_types {
+            let has_packet_sender = self.packet_senders.contains_key(&node_id);
+            let has_command_sender = if node_type == NodeType::Drone {
+                self.send_command_drone.contains_key(&node_id)
+            } else {
+                self.send_command_node.contains_key(&node_id)
+            };
+            let connection_count = self.connections.get(&node_id).map_or(0, |c| c.len());
+
+            println!("📍 Node {}: {:?} | Packet:{} | Command:{} | Connections:{}",
+                     node_id, node_type, has_packet_sender, has_command_sender, connection_count);
+        }
+        println!("==============================");
     }
 
     fn remove_connection(&mut self, id1: &NodeId, id2: &NodeId) -> Result<(), ControllerError> {
@@ -701,7 +828,6 @@ impl ControllerHandler {
     // ================================ Helper Methods ================================
 
     fn add_sender(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
-
         let dst_sender = self.packet_senders.get(dst_id)
             .ok_or_else(|| ControllerError::NodeNotFound(*dst_id))?
             .clone();
@@ -710,37 +836,70 @@ impl ControllerHandler {
             let sender = self.send_command_drone.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
-            match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender.clone())) {
-                Ok(()) => {
-                }
-                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-
-                    match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender)) {
-                        Ok(()) => {
-                        }
-                        Err(e) => {
-                            return Err(ControllerError::ChannelSend(format!("Drone {} channel disconnected: {}", id, e)));
+            // ✅ IMPROVED: Multiple retry attempts for drone commands
+            for attempt in 0..3 {
+                match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender.clone())) {
+                    Ok(()) => {
+                        println!("✅ Drone {} sender added to {} (attempt {})", id, dst_id, attempt + 1);
+                        return Ok(());
+                    }
+                    Err(crossbeam_channel::TrySendError::Full(_)) => {
+                        println!("⚠️ Drone {} command channel full, retrying...", id);
+                        std::thread::sleep(std::time::Duration::from_millis(25));
+                        continue;
+                    }
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                        if attempt < 2 {
+                            println!("⚠️ Drone {} channel disconnected, waiting and retrying...", id);
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            continue;
+                        } else {
+                            return Err(ControllerError::ChannelSend(
+                                format!("Drone {} channel permanently disconnected", id)
+                            ));
                         }
                     }
                 }
-                Err(e) => {
-                    return Err(ControllerError::ChannelSend(e.to_string()));
-                }
             }
+
+            return Err(ControllerError::ChannelSend(
+                format!("Failed to send command to drone {} after 3 attempts", id)
+            ));
+
         } else {
             let sender = self.send_command_node.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
 
-            match sender.send(NodeCommand::AddSender(*dst_id, dst_sender)) {
-                Ok(()) => {},
-                Err(e) => {
-                    return Err(ControllerError::ChannelSend(e.to_string()));
+            // ✅ IMPROVED: Retry for node commands too
+            for attempt in 0..3 {
+                match sender.try_send(NodeCommand::AddSender(*dst_id, dst_sender.clone())) {
+                    Ok(()) => {
+                        println!("✅ Node {} sender added to {} (attempt {})", id, dst_id, attempt + 1);
+                        return Ok(());
+                    }
+                    Err(crossbeam_channel::TrySendError::Full(_)) => {
+                        println!("⚠️ Node {} command channel full, retrying...", id);
+                        std::thread::sleep(std::time::Duration::from_millis(25));
+                        continue;
+                    }
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                        if attempt < 2 {
+                            println!("⚠️ Node {} channel disconnected, waiting and retrying...", id);
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            continue;
+                        } else {
+                            return Err(ControllerError::ChannelSend(
+                                format!("Node {} channel permanently disconnected", id)
+                            ));
+                        }
+                    }
                 }
             }
+
+            return Err(ControllerError::ChannelSend(
+                format!("Failed to send command to node {} after 3 attempts", id)
+            ));
         }
-        
-        Ok(())
     }
 
     fn remove_sender(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
@@ -824,18 +983,6 @@ impl ControllerHandler {
         }
 
         Ok(())
-    }
-
-    // ✅ NUOVO: Metodo di debug per visualizzare nodi esistenti
-    pub fn debug_existing_nodes(&self) {
-        for (&node_id, &node_type) in &self.node_types {
-            let _ = self.packet_senders.contains_key(&node_id);
-            let _ = if node_type == NodeType::Drone {
-                self.send_command_drone.contains_key(&node_id)
-            } else {
-                self.send_command_node.contains_key(&node_id)
-            };
-        }
     }
 
     // ================================ Atomic Server Creation Helpers ================================

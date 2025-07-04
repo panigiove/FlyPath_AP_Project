@@ -2,8 +2,6 @@ use crossbeam_channel::{Receiver, Sender};
 use egui::{Button, Color32, RichText};
 use wg_2024::network::NodeId;
 use crate::utility::{ButtonEvent, ButtonsMessages, LIGHT_BLUE, DARK_BLUE, LIGHT_ORANGE};
-
-// IMPORT per il sistema Drawable
 use crate::drawable::{Drawable, PanelDrawable, PanelType};
 const BUTTON_TEXT_COLOR: Color32 = Color32::WHITE;
 
@@ -11,7 +9,8 @@ const BUTTON_TEXT_COLOR: Color32 = Color32::WHITE;
 pub struct ButtonWindow {
     pub node_id1: Option<NodeId>,
     pub node_id2: Option<NodeId>,
-    // ✅ USA LA STESSA LOGICA DELLA VERSIONE FUNZIONANTE
+    
+    //CHANNELS
     pub receiver_node_clicked: Receiver<NodeId>,
     pub sender_button_messages: Sender<ButtonsMessages>,
     pub button_event_sender: Sender<ButtonEvent>,
@@ -33,8 +32,7 @@ impl ButtonWindow {
             selected_pdr: 0.1,
         }
     }
-
-    // ✅ STESSA LOGICA DELLA VERSIONE FUNZIONANTE CON DEBUG ESTESO
+    
     pub fn handle_node_clicks(&mut self) {
         if let Ok(clicked_node) = self.receiver_node_clicked.try_recv() {
             match (self.node_id1, self.node_id2) {
@@ -54,11 +52,12 @@ impl ButtonWindow {
                         self.node_id2 = None;
                     } else if id2 == clicked_node {
                         self.node_id2 = None;
-                    } else {
+                    } 
+                    else {
                         self.node_id2 = Some(clicked_node);
                     }
                 }
-                (None, Some(_)) => unreachable!(), // Non dovrebbe mai succedere
+                (None, Some(_)) => unreachable!(), //should never append
             }
             self.update_graph_selection();
         }

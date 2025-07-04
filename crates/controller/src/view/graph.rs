@@ -305,7 +305,7 @@ impl GraphApp {
             }
         }
     }
-    
+
     fn draw_graph(&mut self, ui: &mut egui::Ui) {
         self.last_graph_rect = ui.available_rect_before_wrap();
 
@@ -325,9 +325,26 @@ impl GraphApp {
             );
 
         let response = ui.add(widget);
-        
+
         if response.clicked() {
-            self.clicked_this_frame = true;
+            if let Some(&node_index) = self.g.selected_nodes().last() {
+                for (node_id, idx) in &self.node_id_to_index {
+                    if *idx == node_index {
+                        match self.sender_node_clicked.try_send(*node_id) {
+                            Ok(()) => {
+                                ui.ctx().request_repaint();
+                            }
+                            Err(crossbeam_channel::TrySendError::Full(_)) => {
+                                eprintln!("Channel pieno per node click");
+                            }
+                            Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                                eprintln!("Channel disconnesso per node click");
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
         }
     }
     
@@ -604,20 +621,20 @@ impl Drawable for GraphApp {
                         // ✅ INVIA NodeId invece di Clicked::Node
                         match self.sender_node_clicked.try_send(*node_id) {
                             Ok(()) => {
-                                
+
                             }
                             Err(crossbeam_channel::TrySendError::Full(_)) => {
-                                
+
                             }
                             Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
-                                
+
                             }
                         }
                         break;
                     }
                 }
             } else {
-                
+
             }
             self.clicked_this_frame = false;
         }
@@ -627,7 +644,7 @@ impl Drawable for GraphApp {
                 .heading()
                 .color(DARK_BLUE)
         );
-        
+
         self.draw_graph(ui);
 
         ui.separator();

@@ -85,6 +85,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     Sender<MessageType>,Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>,
     HashMap<NodeId, NodeType>), Box<dyn std::error::Error>>{
     let cfg = parse_config(config_path)?;
+    let mut packet_senders: HashMap<NodeId, Sender<Packet>> = HashMap::new();
 
     let mut sender_receiver_pair_drone_event: HashMap<NodeId, (Sender<DroneEvent>, Receiver<DroneEvent>)> = HashMap::new();
     let mut sender_receiver_drone_command: HashMap<NodeId, (Sender<DroneCommand>, Receiver<DroneCommand>)> = HashMap::new();
@@ -102,7 +103,8 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         let (sender_packet, receiver_packet) = unbounded::<Packet>();
         sender_receiver_pair_drone_event.insert(node.id, (sender_drone_event, receiver_drone_event));
         sender_receiver_drone_command.insert(node.id, (sender_drone_command, receiver_drone_command));
-        sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet));
+        sender_receiver_packet.insert(node.id, (sender_packet.clone(), receiver_packet));
+        packet_senders.insert(node.id, sender_packet);
     }
 
     // Create channels for clients
@@ -114,9 +116,10 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         let (sender_from_ui_communication, receiver_from_ui_communication) = unbounded::<FromUiCommunication>();
         sender_receiver_node_event.insert(node.id, (sender_node_event, receiver_node_event));
         sender_receiver_node_command.insert(node.id, (sender_node_command, receiver_node_command));
-        sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet));
+        sender_receiver_packet.insert(node.id, (sender_packet.clone(), receiver_packet));
         sender_receiver_node_to_ui_communication.insert(node.id, (sender_to_ui_communication, receiver_to_ui_communication));
         sender_receiver_node_from_ui_communication.insert(node.id, (sender_from_ui_communication, receiver_from_ui_communication));
+        packet_senders.insert(node.id, sender_packet);
     }
 
     // Create channels for servers
@@ -134,7 +137,6 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     //let mut drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>> = HashMap::new();
     let mut drones_types: HashMap<NodeId, DroneGroup> = HashMap::new();
     let mut drones_counter: HashMap<DroneGroup, i8> = HashMap::new();
-    let mut drone_senders: HashMap<NodeId, Sender<Packet>> = HashMap::new();
     let mut connections: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut send_command_drone: HashMap<NodeId, Sender<DroneCommand>> = HashMap::new();
     let mut send_command_node: HashMap<NodeId, Sender<NodeCommand>> = HashMap::new();
@@ -167,7 +169,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
             .ok_or(format!("Packet sender not found for node {}", node.id))?
             .1.clone();
 
-        drone_senders.insert(node.id, sender_receiver_packet.get(&node.id)
+        packet_senders.insert(node.id, sender_receiver_packet.get(&node.id)
             .ok_or(format!("Packet sender not found for node {}", node.id))?
             .0.clone());
 
@@ -386,11 +388,12 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
                 );
                 node.run();
             })
-            .expect("Impossibile spawnare il thread Worker"); // È buona pratica gestire l'errore se il thread non si avvia
+            .expect("Impossibile spawnare il thread Worker");
 
-        thread_handles.push(handle);    }
+        thread_handles.push(handle);
+    }
 
-    // Start server threads
+    // ✅ FIXED: Start server threads with proper packet_senders registration
     for node in cfg.server.iter() {
         let mut sender_hash = HashMap::new();
         for &adj in &node.connected_drone_ids {
@@ -419,6 +422,11 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
             .ok_or(format!("Node event sender not found for node {}", node.id))?
             .1.clone());
 
+        // ✅ CRITICAL FIX: Add server to packet_senders (this was missing!)
+        packet_senders.insert(node.id, sender_receiver_packet.get(&node.id)
+            .ok_or(format!("Packet sender not found for node {}", node.id))?
+            .0.clone());
+
         nodes.insert(node.id, NodeType::Server);
 
         let node_id = node.id;
@@ -439,19 +447,19 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     let (graph_action_sender, graph_action_receiver) = unbounded::<GraphAction>();
     let (message_sender, message_receiver) = unbounded::<MessageType>();
     let (client_state_sender, client_state_receiver) = unbounded::<(NodeId, ClientState)>();
-    
+
     let cloned_node = nodes.clone();
     let cloned_connections = connections.clone();
 
     let mut controller_handler: ControllerHandler = ControllerHandler::new(
-        cloned_node, drones_types, drone_senders, cloned_connections,
+        cloned_node, drones_types, packet_senders, cloned_connections,
         send_command_drone, send_command_node, receivers_drone_event,
         receivers_node_event, button_receiver, graph_action_sender,
         message_sender.clone(), client_state_sender,
         drones_counter
     );
 
-    // 🚀 AGGIUNGI QUESTE RIGHE:
+    // 🚀 Controller thread
     let controller_handle = thread::spawn(move || {
         controller_handler.run();
     });
