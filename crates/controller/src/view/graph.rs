@@ -199,7 +199,7 @@ impl GraphApp {
             selection_dirty: false,
             clicked_this_frame: false,
         };
-        
+
         app.sync_position_cache();
         app.sync_labels_to_egui_graph();
 
@@ -259,7 +259,7 @@ impl GraphApp {
         }
         positions
     }
-    
+
     fn sync_position_cache(&mut self) {
         self.node_positions.clear();
         for node_index in self.petgraph.node_indices() {
@@ -268,7 +268,7 @@ impl GraphApp {
             }
         }
     }
-    
+
     pub fn update_node_position(&mut self, node_id: NodeId, new_position: Pos2) -> Result<(), String> {
         if let Some(&node_index) = self.node_id_to_index.get(&node_id) {
             if let Some(node_data) = self.petgraph.node_weight_mut(node_index) {
@@ -279,7 +279,7 @@ impl GraphApp {
         }
         Err(format!("Node {} non trovato", node_id))
     }
-    
+
     pub fn get_node_position(&self, node_id: NodeId) -> Option<Pos2> {
         if let Some(&node_index) = self.node_id_to_index.get(&node_id) {
             if let Some(node_data) = self.petgraph.node_weight(node_index) {
@@ -290,7 +290,7 @@ impl GraphApp {
     }
 
     fn sync_labels_to_egui_graph(&mut self) {
-        
+
         for node_index in self.petgraph.node_indices() {
             if let Some(node_data) = self.petgraph.node_weight(node_index) {
                 if let Some(egui_node) = self.g.node_mut(node_index) {
@@ -298,7 +298,7 @@ impl GraphApp {
                 }
             }
         }
-        
+
         for edge_index in self.petgraph.edge_indices() {
             if let Some(egui_edge) = self.g.edge_mut(edge_index) {
                 egui_edge.set_label(String::new()); // Label vuoto = nessun label visualizzato
@@ -347,7 +347,7 @@ impl GraphApp {
             }
         }
     }
-    
+
     fn check_for_position_updates(&mut self) {
         let mut updates: Vec<(NodeIndex, NodeId, Pos2)> = Vec::new();
 
@@ -472,19 +472,32 @@ impl GraphApp {
         if self.node_id_to_index.contains_key(&new_node_id) {
             return Err(format!("Node {} già esiste", new_node_id));
         }
-        
+
         let new_position = self.calculate_position_for_new_node();
         let node_data = GraphNodeData::new(new_node_id, node_type, new_position);
 
         let node_index = self.petgraph.add_node(node_data);
         self.node_id_to_index.insert(new_node_id, node_index);
-
-        // ✅ Aggiorna cache posizioni
+        
         self.node_positions.insert(new_node_id, new_position);
         self.graph_dirty = true;
+        
+        if node_type == NodeType::Client {
+            if let Ok((id, client_state)) = self.client_state_receiver.try_recv() {
+                match self.client_ui_state.lock() {
+                    Ok(mut state) => {
+                        state.add_client(id, client_state)
+                    }
+                    Err(_) => {
+                        eprintln!("Error: Mutex is poisoned")
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
-    
+
     fn calculate_position_for_new_node(&self) -> Pos2 {
         if self.last_graph_rect == egui::Rect::NOTHING {
             return Pos2::new(525.0, 350.0); // fallback al centro del layout fisso
@@ -541,7 +554,7 @@ impl GraphApp {
             }
 
             self.graph_dirty = true;
-            
+
             Ok(())
         } else {
             Err(format!("Node {} non trovato", node_id))
@@ -560,7 +573,7 @@ impl GraphApp {
             self.petgraph.add_edge(idx1, idx2, edge_data);
 
             self.graph_dirty = true;
-            
+
             Ok(())
         } else {
             Err("Uno o entrambi i nodi non trovati".to_string())
@@ -579,7 +592,7 @@ impl GraphApp {
                 }
 
                 self.graph_dirty = true;
-                
+
                 Ok(())
             } else {
                 Err(format!("Edge {} ↔ {} non esiste", id1, id2))
@@ -592,7 +605,7 @@ impl GraphApp {
     // pub fn handle_keyboard_input(&mut self, ctx: &Context){
     //     // ✅ RIMOSSO: La gestione di ESC è ora solo nel ButtonWindow
     //     // Il ButtonWindow gestirà ESC e invierà ClearAllSelections al GraphApp
-    // 
+    //
     //     // Altre eventuali gesture da tastiera possono rimanere qui
     //     // (per ora nessuna)
     //}

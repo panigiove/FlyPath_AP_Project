@@ -45,7 +45,6 @@ pub enum GraphAction {
 pub enum ButtonEvent {
     NewDrone(NodeId, f32),
     NewClient(NodeId),
-    NewServer(NodeId),
     NewServerWithTwoConnections(NodeId, NodeId),
     NewConnection(NodeId, NodeId),
     Crash(NodeId),

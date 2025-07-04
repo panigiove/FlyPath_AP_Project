@@ -54,21 +54,16 @@ impl std::fmt::Display for ControllerError {
 impl std::error::Error for ControllerError {}
 
 pub struct ControllerHandler {
-    // Unified node type tracking
     pub node_types: HashMap<NodeId, NodeType>,
-
-    // Drone-specific data (only types, not instances)
     pub drones_types: HashMap<NodeId, DroneGroup>,
-
-    // Common data
+    
     pub packet_senders: HashMap<NodeId, Sender<Packet>>,
     pub connections: HashMap<NodeId, Vec<NodeId>>,
     pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
     pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
     pub receiver_event: HashMap<NodeId, Receiver<DroneEvent>>,
     pub receriver_node_event: HashMap<NodeId, Receiver<NodeEvent>>,
-
-    // Controller's communication channels
+    
     pub button_receiver: Receiver<ButtonEvent>,
     pub graph_action_sender: Sender<GraphAction>,
     pub message_sender: Sender<MessageType>,
@@ -110,104 +105,85 @@ impl ControllerHandler {
             client_state_sender,
         }
     }
-
-    // ✅ FIX FINALE: Loop principale con priorità e fix borrowing
+    
     pub fn run(&mut self) {
         loop {
-            // ✅ PRIORITÀ 1: Process button events PRIMA di tutto
             let mut button_events_processed = 0;
             while let Ok(command) = self.button_receiver.try_recv() {
                 self.handle_button_event(command);
                 button_events_processed += 1;
-
-                // Limite per evitare loop infiniti
+                //in order to not have an infinite loop
                 if button_events_processed >= 10 {
                     break;
                 }
             }
-
-            // ✅ PRIORITÀ 2: Process drone events (LIMITATI per non bloccare)
+            
             let drone_node_ids: Vec<NodeId> = self.receiver_event.keys().copied().collect();
             let mut drone_events_processed = 0;
             for node_id in drone_node_ids {
-                // ✅ FIX BORROWING: Raccogli gli eventi PRIMA di chiamare handle_drone_event
                 let mut events_to_process = Vec::new();
                 if let Some(receiver) = self.receiver_event.get(&node_id) {
-                    // Raccogli AL MASSIMO 3 eventi per drone per iterazione
                     for _ in 0..3 {
                         if let Ok(event) = receiver.try_recv() {
                             events_to_process.push(event);
                         } else {
-                            break; // Nessun altro evento per questo drone
+                            break;
                         }
                     }
                 }
-
-                // ✅ Ora processa gli eventi raccolti (no borrow conflicts)
+                
                 for event in events_to_process {
                     self.handle_drone_event(event, node_id);
                     drone_events_processed += 1;
                 }
 
-                // ✅ Limite globale per evitare che i droni monopolizzino il loop
+                //limit to the precessed events
                 if drone_events_processed >= 20 {
                     break;
                 }
             }
-
-            // ✅ PRIORITÀ 3: Process node events (LIMITATI per non bloccare)
+            
             let node_node_ids: Vec<NodeId> = self.receriver_node_event.keys().copied().collect();
             let mut node_events_processed = 0;
             for node_id in node_node_ids {
-                // ✅ FIX BORROWING: Raccogli gli eventi PRIMA di chiamare handle_node_event
                 let mut events_to_process = Vec::new();
                 if let Some(receiver) = self.receriver_node_event.get(&node_id) {
-                    // Raccogli AL MASSIMO 3 eventi per nodo per iterazione
                     for _ in 0..3 {
                         if let Ok(event) = receiver.try_recv() {
                             events_to_process.push(event);
                         } else {
-                            break; // Nessun altro evento per questo nodo
+                            break;
                         }
                     }
                 }
-
-                // ✅ Ora processa gli eventi raccolti (no borrow conflicts)
+                
                 for event in events_to_process {
                     self.handle_node_event(event, node_id);
                     node_events_processed += 1;
                 }
-
-                // ✅ Limite globale per evitare che i nodi monopolizzino il loop
+                
                 if node_events_processed >= 20 {
                     break;
                 }
             }
 
-            // ✅ Small pause to avoid intensive loop
+            //small pause to avoid intensive loop
             let total_events = button_events_processed + drone_events_processed + node_events_processed;
             if total_events == 0 {
-                // Se non ci sono eventi, fai una pausa più lunga
+                //longer pause
                 std::thread::sleep(std::time::Duration::from_millis(1));
             } else {
-                // Se ci sono eventi, pausa minima per processare rapidamente
                 std::thread::yield_now();
             }
         }
     }
 
     // ================================ Event Handlers ================================
-
-    // ✅ IMPROVED: Handle button event with node health checks
+    
     pub fn handle_button_event(&mut self, event: ButtonEvent) {
         let result = match event {
             ButtonEvent::NewDrone(id, pdr) => {
                 self.spawn_drone(&id, pdr)
-            },
-            ButtonEvent::NewServer(_) => {
-                Err(ControllerError::InvalidOperation(
-                    "Use 'New Server (2 connections)' button instead. Select 2 drones and create server.".to_string()
-                ))
             },
             ButtonEvent::NewServerWithTwoConnections(drone1, drone2) => {
                 self.create_server_with_two_connections(drone1, drone2)
@@ -216,11 +192,9 @@ impl ControllerHandler {
                 self.create_client(id)
             },
             ButtonEvent::NewConnection(id1, id2) => {
-                // ✅ NEW: Try connection first, if it fails due to server issues, repair and retry
                 match self.add_connection(&id1, &id2) {
                     Err(ControllerError::InvalidOperation(msg)) if msg.contains("needs repair") => {
-
-                        // Extract server ID from error message and repair
+                        
                         if msg.contains(&format!("Server {} channel disconnected", id1)) {
                             if let Ok(()) = self.check_and_repair_node(&id1) {
                                 self.add_connection(&id1, &id2)
@@ -251,26 +225,22 @@ impl ControllerHandler {
             self.send_error_message(&e.to_string());
         }
     }
-
-    // ✅ MIGLIORATO: Handle node event con debug
+    
     fn handle_node_event(&mut self, event: NodeEvent, node_id: NodeId) {
         match event {
             NodeEvent::PacketSent(c) => {
                 let message = format!("The node ID {} has sent a packet {}", node_id, c);
-                if let Err(_e) = self.message_sender.try_send(MessageType::Info(message)){
-                    // gestisci errore se necessario
+                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
                 }
             },
             NodeEvent::CreateMessage(_c) => {
                 let message = "Message created".to_string();
-                if let Err(_e) = self.message_sender.try_send(MessageType::Info(message)){
-                    // gestisci errore se necessario
+                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
                 }
             },
             NodeEvent::MessageRecv(_c) => {
                 let message = "Message received".to_string();
-                if let Err(_e) = self.message_sender.try_send(MessageType::Info(message)){
-                    // gestisci errore se necessario
+                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
                 }
             },
             NodeEvent::ControllerShortcut(packet) => {
@@ -280,8 +250,7 @@ impl ControllerHandler {
             }
         }
     }
-
-    // ✅ MIGLIORATO: Handle drone event con debug
+    
     pub fn handle_drone_event(&mut self, event: DroneEvent, drone_id: NodeId) {
         match event {
             DroneEvent::PacketSent(packet) => {
@@ -303,27 +272,27 @@ impl ControllerHandler {
     }
 
     // ================================ Node Health Management ================================
-
-    // ✅ NEW: Check if a node is healthy (channels working)
+    
+    //checks drone status
     fn is_node_healthy(&self, id: &NodeId) -> bool {
         if self.is_drone(id) {
             if let Some(sender) = self.send_command_drone.get(id) {
-                // Try to send a dummy command to check if channel is alive
+                // try to send a dummy command to check if channel is alive
                 match sender.try_send(DroneCommand::SetPacketDropRate(0.0)) {
                     Ok(()) => true,
-                    Err(crossbeam_channel::TrySendError::Full(_)) => true, // Channel full but alive
-                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => false, // Dead
+                    Err(crossbeam_channel::TrySendError::Full(_)) => true, //channel full but alive
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => false, //dead
                 }
             } else {
                 false
             }
         } else {
             if let Some(sender) = self.send_command_node.get(id) {
-                // Try to send a dummy command to check if channel is alive
+                // try to send a dummy command to check if channel is alive
                 match sender.try_send(NodeCommand::RemoveSender(255)) {
                     Ok(()) => true,
-                    Err(crossbeam_channel::TrySendError::Full(_)) => true, // Channel full but alive
-                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => false, // Dead
+                    Err(crossbeam_channel::TrySendError::Full(_)) => true, // channel full but alive
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => false, // dead
                 }
             } else {
                 false
@@ -393,7 +362,7 @@ impl ControllerHandler {
                 // println!("✅ Restored connection {} -> {}", server_id, neighbor_id);
             }
         }
-        
+
         self.send_success_message(&format!("Server {} has been repaired", server_id));
 
         Ok(())
@@ -422,7 +391,7 @@ impl ControllerHandler {
             );
             chat_server.run();
         });
-        
+
         for attempt in 0..10 {
             std::thread::sleep(std::time::Duration::from_millis(50));
 
@@ -588,7 +557,7 @@ impl ControllerHandler {
                 format!("Node {} is not a drone", id)
             ));
         }
-        
+
         self.debug_drone_removal_impact(id);
 
         if !self.check_network_before_removing_drone(id) {
@@ -645,7 +614,7 @@ impl ControllerHandler {
             }
         }
     }
-    
+
     pub fn smart_remove_drone(&mut self, id: &NodeId) -> Result<(), ControllerError> {
         if !self.is_drone(id) {
             return Err(ControllerError::InvalidOperation(
@@ -993,24 +962,24 @@ impl ControllerHandler {
         if !self.packet_senders.contains_key(&drone2) {
             return Err(ControllerError::NodeNotFound(drone2));
         }
-        
+
         if !self.check_network_before_add_server_with_two_connections(&id, &drone1, &drone2) {
             return Err(ControllerError::NetworkConstraintViolation(
                 format!("Cannot add server {} with connections to {} and {}", id, drone1, drone2)
             ));
         }
-        
+
         if let Err(e) = self.create_server_without_connection(id) {
             return Err(e);
         }
-        
+
         self.node_types.insert(id, NodeType::Server);
-        
+
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Server)) {
             self.complete_cleanup_server(&id);
             return Err(e);
         }
-        
+
         match self.add_server_connections_atomic(&id, &drone1, &drone2) {
             Ok(()) => {
                 self.send_success_message(&format!("Server {} created with connections to drones {} and {}", id, drone1, drone2));
@@ -1024,7 +993,7 @@ impl ControllerHandler {
         }
     }
 
-    // ✅ IMPROVED: Create server with robust initialization  
+    // ✅ IMPROVED: Create server with robust initialization
     fn create_server_without_connection(&mut self, id: NodeId) -> Result<(), ControllerError> {
         let (p_send, p_receiver) = unbounded::<Packet>();
         let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
@@ -1148,7 +1117,7 @@ impl ControllerHandler {
         if !id2_ready {
             return Err(ControllerError::NodeNotFound(*id2));
         }
-        
+
         if !self.check_network_before_add_connection(id1, id2) {
             return Err(ControllerError::NetworkConstraintViolation(
                 format!("Cannot add connection between {} and {}", id1, id2)
@@ -1524,7 +1493,7 @@ impl ControllerHandler {
             let _ = self.remove_sender(drone1, server_id);
             return Err(e);
         }
-        
+
         if let Some(server_connections) = self.connections.get_mut(server_id) {
             server_connections.clear(); // Clear any existing connections
             server_connections.push(*drone1);
@@ -1552,7 +1521,7 @@ impl ControllerHandler {
 
         Ok(())
     }
-    
+
     fn add_sender_without_validation(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
 
         let dst_sender = self.packet_senders.get(dst_id)
@@ -1740,20 +1709,20 @@ impl ControllerHandler {
         for neighbors in adj_list.values_mut() {
             neighbors.retain(|&id| &id != drone_id);
         }
-        
+
         let constraints_ok = self.validate_network_constraints_with_logging(&adj_list);
 
         if !constraints_ok {
             return false;
         }
-        
+
         self.debug_adjacency_list(&adj_list);
         let connectivity_ok = is_connected_after_removal_fixed(drone_id, &adj_list);
 
         if !connectivity_ok {
             return false;
         }
-        
+
         true
     }
 
@@ -1835,7 +1804,7 @@ impl ControllerHandler {
                     .map_or(0, |neighbors| neighbors.len());
                 connection_count >= 2
             });
-        
+
         clients_valid && servers_valid
     }
 
