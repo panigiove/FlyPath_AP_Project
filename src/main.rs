@@ -4,12 +4,11 @@ use crossbeam_channel::{Receiver, Sender};
 use eframe::{egui, Frame};
 use initializer::start;
 use std::collections::HashMap;
-use std::fs::File;
 use std::process;
 use std::sync::{Arc, Mutex};
 use egui::Context;
 use wg_2024::network::NodeId;
-use controller::{controller_ui, ButtonEvent, ControllerUi, GraphAction, GraphApp, MessageType, NodeType};
+use controller::{ButtonEvent, ControllerUi, GraphAction, MessageType, NodeType};
 
 // TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
 // TODO: gentle crash

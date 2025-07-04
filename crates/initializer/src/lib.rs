@@ -25,7 +25,7 @@ use LeDron_James::Drone as LeDronJames_drone;
 use rusty_drones::RustyDrone;
 use controller::{ButtonEvent, DroneGroup, GraphAction, MessageType, NodeType};
 use wg_2024::drone::Drone as DroneTrait;
-use client::ui::{ClientState, UiState};
+use client::ui::{ClientState};
 use controller::controller_handler::ControllerHandler;
 
 #[derive(Debug, Error)]
@@ -189,7 +189,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
 
         nodes.insert(node.id, NodeType::Drone);
 
-        let mut drone: Option<Box <dyn DroneTrait>> = match index {
+        let drone: Option<Box <dyn DroneTrait>> = match index {
             0 => {
                 drones_types.insert(node_id, DroneGroup::RustInPeace);
                 index = index + 1;
