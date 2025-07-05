@@ -42,7 +42,7 @@ impl ChatServer {
             packet_recv,
             packet_send,
             last_session_id: 0,
-            network_manager: NetworkManager::new(id, Duration::new(10, 0)),
+            network_manager: NetworkManager::new(id, Duration::new(30, 0)),
             server_message_manager: ServerMessageManager::new(),
             server_buffer: HashMap::new(),
         }
@@ -236,12 +236,13 @@ impl ChatServer {
             if let Some(sender) = self.packet_send.get(&next_hop) {
                 if sender.send(packet.clone()).is_err() {
                     warn!("Failed to send packet, Drone {} unreachable", next_hop);
-                    self.add_to_buffer(packet.clone());
                     match packet.pack_type {
                         PacketType::Ack(_) | PacketType::FloodResponse(_) => {
                             self.send_event(ControllerShortcut(packet.clone()));
                         }
-                        _ => {}
+                        _ => {
+                            self.add_to_buffer(packet.clone());
+                        }
                     }
 
                     self.network_manager.remove_node(next_hop);
@@ -260,7 +261,7 @@ impl ChatServer {
                 }
             } else {
                 warn!("Sender for {} drone is unreachable", next_hop);
-                self.network_manager.remove_adj(next_hop);
+                self.network_manager.remove_node(next_hop);
                 self.flood_initializer();
             }
         }

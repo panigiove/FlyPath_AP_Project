@@ -1,6 +1,6 @@
 use log::{info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 
@@ -84,7 +84,7 @@ impl NetworkManager {
             NackType::ErrorInRouting(node) => {
                 info!("Error in routing detected: {}", node);
                 self.n_errors += 1;
-                self.topology.remove(&node);
+                self.remove_node(node);
                 self.generate_all_routes();
             }
             NackType::UnexpectedRecipient(node) => {
@@ -125,14 +125,6 @@ impl NetworkManager {
         }
 
         self.client_list.remove(&node);
-    }
-
-    pub fn remove_adj(&mut self, node: NodeId) {
-        self.topology
-            .get_mut(&self.server_id)
-            .unwrap()
-            .0
-            .remove(&node);
     }
 
     fn calculate_path(&self, node_id: NodeId) -> Vec<NodeId> {
@@ -200,9 +192,10 @@ impl NetworkManager {
         }
     }
     pub fn should_flood_request(&mut self) -> bool {
-        let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(36000));
+        let elapsed = self.start_time.elapsed().unwrap_or(Duration::from_secs(0));
 
         let res = elapsed > self.flood_interval || self.n_errors == 7 || self.n_dropped == 5;
+        self.start_time = SystemTime::now();
         self.n_errors = 0;
         self.n_dropped = 0;
 
