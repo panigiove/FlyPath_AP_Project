@@ -1,6 +1,8 @@
 use message::{NodeCommand, NodeEvent};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::HashMap;
+use std::thread;
+use std::thread::JoinHandle;
 use wg_2024::network::{NodeId};
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
@@ -68,6 +70,8 @@ pub struct ControllerHandler {
     pub client_state_sender: Sender<(NodeId, ClientState)>,
 
     pub drones_counter: HashMap<DroneGroup, i8>,
+
+    pub thread_handler: Vec<JoinHandle<()>>,
 }
 
 impl ControllerHandler {
@@ -85,6 +89,7 @@ impl ControllerHandler {
         message_sender: Sender<MessageType>,
         client_state_sender: Sender<(NodeId, ClientState)>,
         drones_counter: HashMap<DroneGroup, i8>,
+        thread_handler: Vec<JoinHandle<()>>,
     ) -> Self {
 
         Self {
@@ -101,6 +106,7 @@ impl ControllerHandler {
             message_sender,
             drones_counter,
             client_state_sender,
+            thread_handler,
         }
     }
     
@@ -351,9 +357,13 @@ impl ControllerHandler {
 
         *self.drones_counter.entry(drone_group).or_insert(0) += 1;
 
-        std::thread::spawn(move || {
-            drone.run();
-        });
+        let handle = thread::Builder::new()
+            .name(format!("Drone ID [{}]", id))
+            .spawn(move || {
+                drone.run();
+            })
+            .expect("Can't spawn Drone");
+        self.thread_handler.push(handle);
         Ok(drone_group)
     }
 
@@ -484,20 +494,25 @@ impl ControllerHandler {
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send.clone());
         self.receiver_node_event.insert(id, node_event_receiver);
+
+        let handle = thread::Builder::new()
+            .name(format!("Client ID [{}]", id))
+            .spawn(move || {
+                let packet_send = HashMap::new();
+                let mut worker = Worker::new(
+                    id,
+                    packet_send,
+                    node_event_send,
+                    ui_communication_send,
+                    p_receiver,
+                    node_command_receiver,
+                    from_ui_communication_receiver
+                );
+                worker.run();
+            })
+            .expect("Can't spawn thread Worker");
+        self.thread_handler.push(handle);
         
-        std::thread::spawn(move || {
-            let packet_send = HashMap::new();
-            let mut worker = Worker::new(
-                id,
-                packet_send,
-                node_event_send,
-                ui_communication_send,
-                p_receiver,
-                node_command_receiver,
-                from_ui_communication_receiver
-            );
-            worker.run();
-        });
         Ok(())
     }
     
@@ -563,19 +578,24 @@ impl ControllerHandler {
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send.clone());
         self.receiver_node_event.insert(id, node_event_receiver);
-        
-        std::thread::spawn(move || {
-            let packet_send = HashMap::new();
-            let mut chat_server = ChatServer::new(
-                id,
-                node_event_send,
-                node_command_receiver,
-                p_receiver,
-                packet_send
-            );
 
-            chat_server.run();
-        });
+        let handle = thread::Builder::new()
+            .name(format!("Server [{}]", id))
+            .spawn(move || {
+                let packet_send = HashMap::new();
+                let mut chat_server = ChatServer::new(
+                    id,
+                    node_event_send,
+                    node_command_receiver,
+                    p_receiver,
+                    packet_send
+                );
+                chat_server.run();
+            })
+            .expect("Can't spawn Server");
+        
+        self.thread_handler.push(handle);
+        
 
         Ok(())
     }

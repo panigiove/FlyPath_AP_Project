@@ -31,7 +31,6 @@ fn main() -> eframe::Result {
     
     let (to_ui,
         from_ui,
-        _handlers,
         button_sender,
         graph_action_receiver,
         message_receiver,
@@ -92,7 +91,7 @@ impl App {
             message_sender,
             client_state_receiver,
             connections,
-            nodes
+            nodes,
         );
         
         Self {

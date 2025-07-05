@@ -81,7 +81,7 @@ fn validate(cfg: &Config) -> Result<(), ConfigError> {
 pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
     HashMap<NodeId, (Sender<ToUICommunication>, Receiver<ToUICommunication>)>,
     HashMap<NodeId, (Sender<FromUiCommunication>, Receiver<FromUiCommunication>)>,
-    Vec<JoinHandle<()>>, Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
+    Sender<ButtonEvent>, Receiver<GraphAction>, Receiver<MessageType>,
     Sender<MessageType>,Receiver<(NodeId, ClientState)>, HashMap<NodeId, Vec<NodeId>>,
     HashMap<NodeId, NodeType>), Box<dyn std::error::Error>>{
     let cfg = parse_config(config_path)?;
@@ -326,9 +326,13 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         };
 
         if let Some(mut drone) = drone {
-            let handle = thread::spawn(move || {
-                drone.run();
-            });
+            let handle = thread::Builder::new()
+                .name(format!("Client ID [{}]", node_id))
+                .spawn(move || {
+                    drone.run();
+                })
+                .expect("Can't spawn Drone");
+
             thread_handles.push(handle);
         } else {
             eprintln!("Drone not created for index {}", index);
@@ -375,7 +379,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         let node_id = node.id;
 
         let handle = thread::Builder::new()
-            .name(format!("{}", node_id))
+            .name(format!("Client ID [{}]", node_id))
             .spawn(move || {
                 let mut node = Worker::new(
                     node_id,
@@ -428,7 +432,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         nodes.insert(node.id, NodeType::Server);
 
         let node_id = node.id;
-        let handle = thread::Builder::new().name(format!("{}", node_id)).spawn(move || {
+        let handle = thread::Builder::new().name(format!("Server ID [{}]", node_id)).spawn(move || {
             let mut node = ChatServer::new(
                 node_id,
                 sender_node_event,
@@ -454,17 +458,16 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         send_command_drone, send_command_node, receivers_drone_event,
         receivers_node_event, button_receiver, graph_action_sender,
         message_sender.clone(), client_state_sender,
-        drones_counter
+        drones_counter,
+        thread_handles,
     );
     
     let controller_handle = thread::spawn(move || {
         controller_handler.run();
     });
-    thread_handles.push(controller_handle);
 
-    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication,
-        thread_handles, button_sender, graph_action_receiver,
-        message_receiver,message_sender, client_state_receiver, connections, nodes ))
+    Ok((sender_receiver_node_to_ui_communication, sender_receiver_node_from_ui_communication,button_sender, graph_action_receiver,
+        message_receiver,message_sender, client_state_receiver, connections, nodes))
 }
 
 //the Network Initialization File should represent a connected graph

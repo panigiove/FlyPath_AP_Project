@@ -9,7 +9,7 @@ const BUTTON_TEXT_COLOR: Color32 = Color32::WHITE;
 pub struct ButtonWindow {
     pub node_id1: Option<NodeId>,
     pub node_id2: Option<NodeId>,
-    
+
     //CHANNELS
     pub receiver_node_clicked: Receiver<NodeId>,
     pub sender_button_messages: Sender<ButtonsMessages>,
@@ -32,7 +32,7 @@ impl ButtonWindow {
             selected_pdr: 0.1,
         }
     }
-    
+
     pub fn handle_node_clicks(&mut self) {
         if let Ok(clicked_node) = self.receiver_node_clicked.try_recv() {
             match (self.node_id1, self.node_id2) {
@@ -52,7 +52,7 @@ impl ButtonWindow {
                         self.node_id2 = None;
                     } else if id2 == clicked_node {
                         self.node_id2 = None;
-                    } 
+                    }
                     else {
                         self.node_id2 = Some(clicked_node);
                     }
@@ -72,7 +72,7 @@ impl ButtonWindow {
     pub fn clear_selection(&mut self) {
         self.node_id1 = None;
         self.node_id2 = None;
-        
+
         let _ = self.sender_button_messages.try_send(ButtonsMessages::ClearAllSelections);
     }
 
@@ -121,7 +121,7 @@ impl ButtonWindow {
 impl Drawable for ButtonWindow {
     fn update(&mut self) {
         self.handle_node_clicks();
-        
+
     }
 
     fn render(&mut self, ui: &mut egui::Ui) {
