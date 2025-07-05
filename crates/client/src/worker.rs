@@ -59,7 +59,7 @@ impl Worker {
             if let Some(cmd) = cmd {
                 match cmd {
                     NodeCommand::RemoveSender(nid) => {
-                        debug!("CMD: Remove Sender {:?}", nid);
+                        debug!("{}: Remove Sender {:?}", self.my_id, nid);
                         self.channels.borrow_mut().tx_drone.remove(&nid);
                         self.network.state.remove_node(&nid);
                         if !self
@@ -71,14 +71,12 @@ impl Worker {
                         }
                     }
                     NodeCommand::AddSender(nid, tx_drone) => {
-                        debug!("CMD: Add Sender {:?}", nid);
+                        debug!("{}: Add Sender {:?}", self.my_id, nid);
                         self.channels.borrow_mut().tx_drone.insert(nid, tx_drone);
                         self.network
                             .state
                             .add_link(self.my_id, nid, Client, Drone, 1);
-                        if !self.network.state.recompute_all_routes_to_server(None) {
-                            self.network.send_flood_request();
-                        }
+                        self.network.send_flood_request();
                     }
                     NodeCommand::FromShortcut(pack) => {
                         self._packet_handler(pack);
