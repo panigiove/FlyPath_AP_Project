@@ -26,7 +26,7 @@ fn main() -> eframe::Result {
     let config_path = if args.len() > 1 {
         args[1].clone()
     } else {
-        "./crates/initializer/src/test_data/input8.toml".to_string()
+        "./crates/initializer/src/test_data/input11.toml".to_string()
     };
     
     let (to_ui,

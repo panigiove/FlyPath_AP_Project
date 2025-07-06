@@ -124,7 +124,9 @@ impl NetworkManager {
             self.topology.get_mut(key).unwrap().0.remove(&node);
         }
 
-        self.client_list.remove(&node);
+        if self.client_list.contains(&node) {
+            self.client_list.remove(&node);
+        }
     }
 
     fn calculate_path(&self, node_id: NodeId) -> Vec<NodeId> {

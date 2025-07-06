@@ -4,7 +4,7 @@ mod test;
 
 use crate::message::ServerMessageManager;
 use crate::network::NetworkManager;
-use ::message::NodeEvent::ControllerShortcut;
+use ::message::NodeEvent::{ControllerShortcut, PacketSent};
 use ::message::{NodeCommand, NodeEvent};
 use crossbeam_channel::select_biased;
 use crossbeam_channel::{Receiver, Sender};
@@ -12,7 +12,7 @@ use log::{info, warn};
 use std::collections::HashMap;
 use std::time::Duration;
 use wg_2024::network::*;
-use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, NodeType, Packet, PacketType};
 
 #[derive(Clone, Debug)]
 pub struct ChatServer {
@@ -90,10 +90,31 @@ impl ChatServer {
         }
     }
 
-    fn packet_handler(&mut self, packet: Packet) {
+    fn packet_handler(&mut self, mut packet: Packet) {
         match packet.pack_type {
             //da completare
             PacketType::MsgFragment(fragment) => {
+                let mut ack = Packet{
+                    routing_header: {
+                        if let Some(route) = self.network_manager.get_route(&packet.routing_header.destination().unwrap()){
+                            SourceRoutingHeader{
+                                hop_index: 0,
+                                hops: route,
+                            }
+                        }
+                        else{
+                            packet.routing_header.reset_hop_index();
+                            packet.routing_header.get_reversed()
+                        }
+                    },
+                    session_id: packet.session_id,
+                    pack_type: PacketType::Ack(Ack{
+                        fragment_index: fragment.fragment_index,
+                    }),
+                };
+
+                self.send_packet(&mut ack);
+
                 let key = &(packet.session_id, packet.routing_header.source().unwrap());
                 
                 self.server_message_manager.store_fragment(key, fragment.clone());
@@ -236,6 +257,7 @@ impl ChatServer {
             if let Some(sender) = self.packet_send.get(&next_hop) {
                 if sender.send(packet.clone()).is_err() {
                     warn!("Failed to send packet, Drone {} unreachable", next_hop);
+                    self.network_manager.update_errors();
                     match packet.pack_type {
                         PacketType::Ack(_) | PacketType::FloodResponse(_) => {
                             self.send_event(ControllerShortcut(packet.clone()));
@@ -246,23 +268,27 @@ impl ChatServer {
                     }
 
                     self.network_manager.remove_node(next_hop);
-                    self.network_manager.generate_all_routes();
-                    
-                    if self.network_manager.should_flood_request(){
-                        self.flood_initializer();
-                    }
                 } else {
                     info!(
                         "{} with session id {} and fragment index {} from ChatServer {} sent successfully to {}, destination is {}",
                         packet.pack_type, packet.session_id, packet.get_fragment_index(), self.id, next_hop, packet.routing_header.destination().unwrap()
                     );
-                    let event = NodeEvent::PacketSent(packet.clone());
+                    let event = PacketSent(packet.clone());
                     self.send_event(event);
                 }
             } else {
                 warn!("Sender for {} drone is unreachable", next_hop);
+                self.network_manager.update_errors();
+                match packet.pack_type {
+                    PacketType::Ack(_) | PacketType::FloodResponse(_) => {
+                        self.send_event(ControllerShortcut(packet.clone()));
+                    }
+                    _ => {
+                        self.add_to_buffer(packet.clone());
+                    }
+                }
+
                 self.network_manager.remove_node(next_hop);
-                self.flood_initializer();
             }
         }
     }
