@@ -205,7 +205,7 @@ Any packets that are not sent are stored in a buffer. Each server has its own bu
 
 ## Controller
 
-This component interacts with the entire network. Its UI is composed of three sections:
+This component interacts with the entire network. At its core, the ControllerHandler is responsible for performing the desired actions on the network. Its UI is composed of three sections:
 
 ### Network Graph Panel
 This area allows direct interaction with the network. The network is represented as a graph, and each node has a label: `NodeType NodeId`.
