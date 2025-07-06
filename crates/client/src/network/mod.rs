@@ -303,7 +303,10 @@ impl NetworkState {
     /// * - `None` - If no route founded or determined
     pub fn get_server_path(&mut self, sid: &NodeId) -> Option<Vec<NodeId>> {
         if !self.server_list.contains(sid) {
-            warn!("{}: Server is not present inside the list {:?}", self.start_id, sid);
+            warn!(
+                "{}: Server is not present inside the list {:?}",
+                self.start_id, sid
+            );
             return None;
         }
 
@@ -395,7 +398,10 @@ impl NetworkManager {
         self.old_state = self.state.clone();
         self.state = NetworkState::new(self.my_id, FLOOD_INTERVAL, ERROR_SCALE, DROP_SCALE);
         self.last_flood += 1;
-        debug!("{}: Sending flood request with session {}", self.my_id, self.last_flood);
+        debug!(
+            "{}: Sending flood request with session {}",
+            self.my_id, self.last_flood
+        );
         let flood_request = Packet::new_flood_request(
             SourceRoutingHeader::empty_route(),
             0,
@@ -411,11 +417,16 @@ impl NetworkManager {
         flood_response: &FloodResponse,
     ) -> Option<Vec<NodeId>> {
         if flood_response.path_trace.is_empty() {
-            error!("{}: Invalid path_trace: empty in flood response", self.my_id);
+            error!(
+                "{}: Invalid path_trace: empty in flood response",
+                self.my_id
+            );
             return None;
         }
 
-        let new_servers: Vec<NodeId> = flood_response.path_trace.iter()
+        let new_servers: Vec<NodeId> = flood_response
+            .path_trace
+            .iter()
             .filter_map(|&(nid, ntype)| {
                 if ntype == NodeType::Server && !self.state.server_list.contains(&nid) {
                     Some(nid)
@@ -429,10 +440,14 @@ impl NetworkManager {
             let (prev_id, prev_type) = window[0];
             let (curr_id, curr_type) = window[1];
 
-            self.state.add_link(prev_id, curr_id, prev_type, curr_type, 1);
+            self.state
+                .add_link(prev_id, curr_id, prev_type, curr_type, 1);
         }
 
-        info!("{}: FLOOD RESPONSE path:{:?}, topology:{:?}, discovered new servers: {:?}", self.my_id, flood_response.path_trace ,self.state.topology, new_servers);
+        info!(
+            "{}: FLOOD RESPONSE path:{:?}, topology:{:?}, discovered new servers: {:?}",
+            self.my_id, flood_response.path_trace, self.state.topology, new_servers
+        );
 
         if new_servers.is_empty() {
             // debug!("{}: No new servers discovered in flood response.", self.my_id);
@@ -440,7 +455,10 @@ impl NetworkManager {
         }
 
         if !self.state.recompute_all_routes_to_server(None) {
-            warn!("{}: Route recomputation failed. Sending new flood request.", self.my_id);
+            warn!(
+                "{}: Route recomputation failed. Sending new flood request.",
+                self.my_id
+            );
             self.send_flood_request();
         }
 
@@ -545,8 +563,8 @@ impl NetworkManager {
             NackType::Dropped => {
                 self.state.failed_drop_count = self.state.failed_drop_count.saturating_add(1);
                 debug!(
-                    "Message dropped by node {:?}, drop count now {}",
-                    origin, self.state.failed_drop_count
+                    "{}: Message dropped by node {:?}, drop count now {}",
+                    self.my_id, origin, self.state.failed_drop_count
                 );
 
                 self.state.increment_weight_around_node(origin, 1);
@@ -557,8 +575,8 @@ impl NetworkManager {
 
             NackType::DestinationIsDrone => {
                 debug!(
-                    "Removing {:?} from server list — identified as drone.",
-                    origin
+                    "{}: Removing {:?} from server list — identified as drone.",
+                    self.my_id, origin
                 );
                 self.state.server_list.remove(origin);
                 self.state.id_to_idx.remove(origin);

@@ -47,7 +47,11 @@ impl ChannelManager {
                     // info!("{}: Packet sent successfully to node {}", thread::current().name().unwrap_or("unnamed"),nid);
                 }
                 Err(_) => {
-                    warn!("{}: Failed to send packet to node {}", thread::current().name().unwrap_or("unnamed"), nid);
+                    warn!(
+                        "{}: Failed to send packet to node {}",
+                        thread::current().name().unwrap_or("unnamed"),
+                        nid
+                    );
                     failed_nodes.push(nid);
                 }
             }
@@ -55,7 +59,11 @@ impl ChannelManager {
 
         for nid in failed_nodes {
             self.tx_drone.remove(&nid);
-            info!("{}: Removed node {} from tx_drone",thread::current().name().unwrap_or("unnamed"), nid);
+            info!(
+                "{}: Removed node {} from tx_drone",
+                thread::current().name().unwrap_or("unnamed"),
+                nid
+            );
         }
     }
 }

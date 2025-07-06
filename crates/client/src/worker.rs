@@ -5,7 +5,7 @@ use crate::message::MessagerManager;
 use crate::network::NetworkManager;
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use log::{debug, error, info, warn};
-use message::NodeEvent::CreateMessage;
+use message::NodeEvent::{ControllerShortcut, CreateMessage};
 use message::{ChatRequest, NodeCommand, NodeEvent};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -46,7 +46,6 @@ impl Worker {
     }
 
     pub fn run(&mut self) {
-        // info!("{:}: Worker running", self.my_id);
         self.network.send_flood_request();
         loop {
             let (mut cmd, mut inter, mut pack) = (None, None, None);
@@ -108,7 +107,10 @@ impl Worker {
                                 };
                                 self._send_message(&sid, request);
                             } else {
-                                warn!("Client {:?} has no known servers", destination);
+                                warn!(
+                                    "{}: Client {:?} has no known servers",
+                                    self.my_id, destination
+                                );
                             }
                         }
                     }
@@ -156,7 +158,10 @@ impl Worker {
                                 self.channels.borrow_mut().tx_drone.remove(&nid);
                             }
                         } else {
-                            warn!("{}: No drone channel found for {:?}, Using Controller Fallback", self.my_id, nid);
+                            warn!(
+                                "{}: No drone channel found for {:?}, Using Controller Fallback",
+                                self.my_id, nid
+                            );
                             self.network.state.remove_node(&nid);
 
                             self.channels
@@ -175,7 +180,6 @@ impl Worker {
                         if let Some(server_reach) =
                             self.network.update_network_from_flood_response(response)
                         {
-                            // info!("{}: New servers discovered: {:?}",self.my_id, server_reach);
                             self._send_buffer(&server_reach);
                             self._registry_and_client_list(&server_reach);
                         }
@@ -206,14 +210,48 @@ impl Worker {
 
                         if let Some(sid) = self.message.get_destination(&session) {
                             if !self.network.send_packet(&packet, &sid) {
+                                debug!("{}: RECEIVED DROP from {},  to {}, session {}. IMPOSSIBLE TO SEND", self.my_id, from, sid, session);
                                 self.message.add_packets_to_buffer(&sid, vec![packet]);
+                            } else {
+                                debug!(
+                                    "{}: RECEIVED DROP from {},  to {}, session {}. SEND AGAIN",
+                                    self.my_id, from, sid, session
+                                );
                             }
                         }
                     }
                 }
                 MsgFragment(frag) => {
-                    self.message
-                        .save_received_message(frag.clone(), session, from);
+                    if self
+                        .message
+                        .save_received_message(frag.clone(), session, from)
+                    {
+                        let mut packet = Packet::new_ack(
+                            SourceRoutingHeader::empty_route(),
+                            session,
+                            frag.fragment_index,
+                        );
+                        if self.network.send_packet(&packet, &from) {
+                            debug!(
+                                "{}: sended ACK frag_index {}, session {}, to {}",
+                                self.my_id, frag.fragment_index, session, from
+                            );
+                        } else {
+                            debug!(
+                                "{}: TRANSMIT SHORTCUT ACK frag_index {}, session {}, to {}",
+                                self.my_id, frag.fragment_index, session, from
+                            );
+                            let mut return_hops = vec![from];
+                            return_hops.extend(packet.routing_header.hops.iter().rev().cloned());
+                            packet.routing_header =
+                                SourceRoutingHeader::with_first_hop(return_hops);
+                            self.channels
+                                .borrow()
+                                .tx_ctrl
+                                .send(ControllerShortcut(packet))
+                                .expect("Failed to transmit to CONTROLLER");
+                        }
+                    }
                 }
             }
         }
@@ -221,7 +259,10 @@ impl Worker {
 
     fn _send_message(&mut self, sid: &NodeId, msg: ChatRequest) {
         let wrapper = self.message.create_and_store_wrapper(sid, msg.clone());
-        debug!("{}: Create Message: {:?}", self.my_id, msg);
+        debug!(
+            "{}: Create Message: {:?} with session {}",
+            self.my_id, msg, wrapper.session_id
+        );
         let mut unsent = Vec::new();
 
         self.channels

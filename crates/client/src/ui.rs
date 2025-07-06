@@ -89,11 +89,11 @@ impl Ui {
                         for client_id in clients_to_show {
                             let is_current = state.current_client == Some(client_id);
                             let button_text = if is_current {
-                                RichText::new(format!("Client {}", client_id))
+                                RichText::new(format!("Client {client_id}"))
                                     .strong()
                                     .color(egui::Color32::WHITE)
                             } else {
-                                RichText::new(format!("Client {}", client_id))
+                                RichText::new(format!("Client {client_id}"))
                             };
 
                             let button = if is_current {
@@ -172,11 +172,11 @@ impl Ui {
                                             let unread =
                                                 client_state.unread_chat.contains(&node_id);
                                             let label = if unread {
-                                                RichText::new(format!("Chat {}", node_id))
+                                                RichText::new(format!("Chat {node_id}"))
                                                     .strong()
                                                     .color(egui::Color32::LIGHT_RED)
                                             } else {
-                                                RichText::new(format!("Chat {}", node_id))
+                                                RichText::new(format!("Chat {node_id}"))
                                             };
 
                                             let is_selected =
@@ -274,12 +274,9 @@ impl Ui {
                                             for (sender_id, msg) in messages {
                                                 ui.horizontal_wrapped(|ui| {
                                                     ui.label(
-                                                        RichText::new(format!(
-                                                            "Node {}:",
-                                                            sender_id
-                                                        ))
-                                                        .strong()
-                                                        .color(egui::Color32::GRAY),
+                                                        RichText::new(format!("Node {sender_id}:"))
+                                                            .strong()
+                                                            .color(egui::Color32::GRAY),
                                                     );
                                                     ui.add(egui::Label::new(msg).wrap());
                                                 });
