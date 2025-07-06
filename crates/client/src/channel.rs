@@ -1,4 +1,4 @@
-use crate::comunication::{FromUiCommunication, ToUICommunication};
+use crate::communication::{FromUiCommunication, ToUICommunication};
 use crossbeam_channel::{Receiver, Sender};
 use log::{info, warn};
 use message::{NodeCommand, NodeEvent};

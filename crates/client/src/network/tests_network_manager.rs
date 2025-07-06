@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::channel::ChannelManager;
-    use crate::comunication::ToUICommunication;
+    use crate::communication::ToUICommunication;
     use crate::network::{NetworkManager, NEW_STATE_GRACE_PERIOD};
     use crossbeam_channel::{unbounded, Receiver};
     use message::NodeEvent;

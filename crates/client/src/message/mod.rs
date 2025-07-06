@@ -1,7 +1,7 @@
 mod tests;
 
 use crate::channel::ChannelManager;
-use crate::comunication::ToUICommunication::ChatResponse;
+use crate::communication::ToUICommunication::ChatResponse;
 use hashbrown::{HashMap, HashSet};
 use log::{debug, error, info, warn};
 use message::ChatResponse::{ClientList, ErrorWrongClientId};
