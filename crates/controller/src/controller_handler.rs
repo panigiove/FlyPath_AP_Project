@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded, TryRecvError};
 use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
+use thread::sleep;
 use wg_2024::network::{NodeId};
 use wg_2024::controller::{DroneCommand, DroneEvent};
 use wg_2024::packet::Packet;
@@ -173,10 +174,9 @@ impl ControllerHandler {
             //small pause to avoid intensive loop
             let total_events = button_events_processed + drone_events_processed + node_events_processed;
             if total_events == 0 {
-                //longer pause
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                sleep(std::time::Duration::from_millis(1));
             } else {
-                std::thread::yield_now();
+                thread::yield_now();
             }
         }
     }
@@ -184,7 +184,7 @@ impl ControllerHandler {
     // ================================ Event Handlers ================================
 
     pub fn handle_button_event(&mut self, event: ButtonEvent) {
-        thread::sleep(std::time::Duration::from_millis(10));
+        sleep(std::time::Duration::from_millis(10));
 
         let result = match event {
             ButtonEvent::NewDrone(id, pdr) => {
@@ -214,29 +214,26 @@ impl ControllerHandler {
             let error_msg = e.to_string();
             self.send_error_message(&error_msg);
 
-            thread::sleep(std::time::Duration::from_millis(50));
+            sleep(std::time::Duration::from_millis(50));
         } else {
 
-            thread::sleep(std::time::Duration::from_millis(50));
+            sleep(std::time::Duration::from_millis(50));
         }
     }
 
     fn handle_node_event(&mut self, event: NodeEvent, node_id: NodeId) {
         match event {
             NodeEvent::PacketSent(c) => {
-                let message = format!("The node ID {} has sent a packet {}", node_id, c);
-                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
-                }
+                let message = format!("The node ID [{}] has sent a packet {}", node_id, c);
+                let _ = self.message_sender.try_send(MessageType::Info(message));
             },
             NodeEvent::CreateMessage(_c) => {
                 let message = "Message created".to_string();
-                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
-                }
+                let _ = self.message_sender.try_send(MessageType::Info(message));
             },
             NodeEvent::MessageRecv(_c) => {
                 let message = "Message received".to_string();
-                if let Err(_) = self.message_sender.try_send(MessageType::Info(message)){
-                }
+                let _ = self.message_sender.try_send(MessageType::Info(message));
             },
             NodeEvent::ControllerShortcut(packet) => {
                 if let Err(e) = self.send_packet_to_client(packet) {
@@ -251,12 +248,12 @@ impl ControllerHandler {
             DroneEvent::PacketSent(packet) => {
                 let msg = format!("Drone ID [{}] successfully sent packet with session ID [{}]",
                                   drone_id, packet.session_id);
-                self.send_success_message(&msg);
+                let _ = self.message_sender.try_send(MessageType::Packet(msg));
             }
             DroneEvent::PacketDropped(packet) => {
                 let msg = format!("Drone ID [{}] dropped packet with session ID [{}]",
                                   drone_id, packet.session_id);
-                self.send_info_message(&msg);
+                let _ = self.message_sender.try_send(MessageType::Packet(msg));
             }
             DroneEvent::ControllerShortcut(packet) => {
                 if let Err(e) = self.send_packet_to_client(packet) {
@@ -324,7 +321,7 @@ impl ControllerHandler {
         self.send_command_drone.insert(id, sender_drone_command.clone());
         self.receiver_event.insert(id, receiver_event);
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        sleep(std::time::Duration::from_millis(100));
 
         match sender_drone_command.try_send(DroneCommand::SetPacketDropRate(pdr)) {
             Ok(()) => {
@@ -421,7 +418,7 @@ impl ControllerHandler {
                 .map_err(|e| ControllerError::ChannelSend(format!("Failed to send crash command: {}", e)))?;
         }
 
-        thread::sleep(std::time::Duration::from_millis(150));
+        sleep(std::time::Duration::from_millis(150));
 
         if let Some(connections) = self.connections.get(id).cloned() {
             for neighbor_id in &connections {
@@ -441,7 +438,7 @@ impl ControllerHandler {
                 }
 
                 if attempt < 19 {
-                    thread::sleep(std::time::Duration::from_millis(50));
+                    sleep(std::time::Duration::from_millis(50));
                 }
             }
         }
@@ -460,7 +457,7 @@ impl ControllerHandler {
 
         self.send_graph_update(RemoveNode(*id))?;
 
-        thread::sleep(std::time::Duration::from_millis(50));
+        sleep(std::time::Duration::from_millis(50));
 
         self.send_success_message(&format!("Drone ID [{}] removed successfully", id));
 
@@ -487,7 +484,7 @@ impl ControllerHandler {
             }
 
             if drained_count > 0 {
-                thread::sleep(std::time::Duration::from_millis(100));
+                sleep(std::time::Duration::from_millis(100));
 
                 loop {
                     match receiver.try_recv() {
@@ -692,7 +689,7 @@ impl ControllerHandler {
             }
 
             if attempt < 4 {
-                thread::sleep(std::time::Duration::from_millis(50));
+                sleep(std::time::Duration::from_millis(50));
             }
         }
 
@@ -812,12 +809,12 @@ impl ControllerHandler {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        std::thread::sleep(std::time::Duration::from_millis(25));
+                        sleep(std::time::Duration::from_millis(25));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
@@ -842,12 +839,12 @@ impl ControllerHandler {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        std::thread::sleep(std::time::Duration::from_millis(25));
+                        sleep(std::time::Duration::from_millis(25));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             if matches!(self.get_node_type(id), Some(NodeType::Server)) {
@@ -900,7 +897,7 @@ impl ControllerHandler {
                     Ok(()) => break,
                     Err(_) => {
                         if attempt < 2 {
-                            thread::sleep(std::time::Duration::from_millis(50));
+                            sleep(std::time::Duration::from_millis(50));
                         }
                     }
                 }
@@ -911,7 +908,7 @@ impl ControllerHandler {
                     Ok(()) => break,
                     Err(_) => {
                         if attempt < 2 {
-                            thread::sleep(std::time::Duration::from_millis(50));
+                            sleep(std::time::Duration::from_millis(50));
                         }
                     }
                 }
@@ -962,7 +959,7 @@ impl ControllerHandler {
                 }
                 Some(NodeType::Drone) => {
                     return Err(ControllerError::InvalidOperation(
-                        format!("Cannot send shortcut packet to drone {}", destination)
+                        format!("Cannot send shortcut packet to drone ID[{}]", destination)
                     ));
                 }
                 None => {
@@ -1075,12 +1072,12 @@ impl ControllerHandler {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        thread::sleep(std::time::Duration::from_millis(50));
+                        sleep(std::time::Duration::from_millis(50));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            thread::sleep(std::time::Duration::from_millis(100));
+                            sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
@@ -1106,12 +1103,12 @@ impl ControllerHandler {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        thread::sleep(std::time::Duration::from_millis(50));
+                        sleep(std::time::Duration::from_millis(50));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            thread::sleep(std::time::Duration::from_millis(100));
+                            sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
@@ -1297,7 +1294,7 @@ impl ControllerHandler {
             Err(crossbeam_channel::TrySendError::Full(_)) => {
                 // Channel pieno -> try multiple times
                 for _ in 0..3 {
-                    thread::sleep(std::time::Duration::from_millis(10));
+                    sleep(std::time::Duration::from_millis(10));
                     if self.graph_action_sender.try_send(action.clone()).is_ok() {
                         return Ok(());
                     }
@@ -1313,21 +1310,17 @@ impl ControllerHandler {
     fn send_success_message(&self, msg: &str) {
         match self.message_sender.try_send(MessageType::Ok(msg.to_string())) {
             Ok(()) => {
-                thread::sleep(std::time::Duration::from_millis(300));
+                sleep(std::time::Duration::from_millis(300));
             }
             _other => {}
         }
 
     }
 
-    fn send_info_message(&self, msg: &str) {
-        let _ = self.message_sender.try_send(MessageType::Info(msg.to_string()));
-    }
-
     fn send_error_message(&self, msg: &str) {
         match self.message_sender.try_send(MessageType::Error(msg.to_string())) {
             Ok(()) => {
-                thread::sleep(std::time::Duration::from_millis(300));
+                sleep(std::time::Duration::from_millis(300));
             }
             _other => {}
         }

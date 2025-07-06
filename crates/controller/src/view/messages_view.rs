@@ -1,6 +1,6 @@
 use crossbeam_channel::Receiver;
 use egui::{Color32, RichText};
-use crate::utility::{MessageType, ORANGE, LIGHT_BLUE, DARK_BLUE, LIGHT_ORANGE, DARK_GREEN};
+use crate::utility::{MessageType, ORANGE, LIGHT_BLUE, DARK_BLUE, LIGHT_ORANGE};
 
 use crate::drawable::{Drawable, PanelDrawable, PanelType};
 
@@ -74,18 +74,13 @@ impl Drawable for MessagesWindow {
                                     .color(LIGHT_BLUE);
                                 ui.label(text);
                             }
-                            MessageType::PacketSent(t) => {
-                                let text = RichText::new(format!("📤 {}", t))
-                                    .color(DARK_GREEN);
-                                ui.label(text);
-                            }
-                            MessageType::PacketDropped(t) => {
+                            MessageType::Packet(t) => {
                                 let text = RichText::new(format!("📥 {}", t))
                                     .color(LIGHT_ORANGE);
                                 ui.label(text);
                             }
                             MessageType::Info(t) => {
-                                let text = RichText::new(format!("ℹ️ {}", t))
+                                let text = RichText::new(format!("ℹ {}", t))
                                     .color(DARK_BLUE);
                                 ui.label(text);
                             }

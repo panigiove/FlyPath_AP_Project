@@ -4,7 +4,6 @@ pub mod controller_handler;
 pub mod controller_ui;
 mod drawable;
 
-// Re-export
 pub use view::graph::GraphApp;
 pub use view::buttons::ButtonWindow;
 pub use view::messages_view::MessagesWindow;

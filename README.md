@@ -208,16 +208,25 @@ Any packets that are not sent are stored in a buffer. Each server has its own bu
 This component interacts with the entire network. Its UI is composed of three sections:
 
 ### Network Graph Panel
-This area allows direct interaction with the network. The network is represented as a graph, and each node has a label corresponding: `NodeType NodeId`.  
+This area allows direct interaction with the network. The network is represented as a graph, and each node has a label: `NodeType NodeId`.
+Nodes can be dragged.
 To interact with the network, you must double-click one or two nodes.
-To be sure that your selection is correct check the Selection State:
+To verify that your selection is correct, check the **Selection Info** panel:  
+![Selection Info](crates/assets/images_readme/selection_info.png)  
+**NOTE**: Due to the fact that the UI is built with egui (which uses frames), selection may occasionally behave unexpectedly. In such cases, it’s highly recommended to clear the selection either by clicking the `Clear All Selections` button or by pressing the `ESC` key on your keyboard.
 
-
-### Network Controls Panel
-This section contains a list of buttons that become active after selecting some graph components.
+### Network Control Panel
+This section contains a list of buttons that become active after selecting graph components.
+Here you can choose which action the controller should perform.
+Due to network requirements, you must first select one or two nodes (depending on the action) and then click the corresponding action button.
+If two nodes are selected but the action only requires one, the controller will perform the action on the first selected node.
 
 ### Messages Panel
-This area displays feedback about what is happening in the network.
+This area displays feedback about what is happening in the network. There are five types of messages:  
+- **Error**: shown when something goes wrong while executing the selected action.
+- **Ok**: shown when the requested action has been successfully completed. 
+- **Packet**: shown when the controller receives information about circulating packets from drones.
+- **Info**: shown when the controller receives updates about new messages from clients or the server.
 
 ## Server
 The chat server implementation is Giovanni Panighel's individual contribution, and it provides the basic needs for client to communicate from each other.
