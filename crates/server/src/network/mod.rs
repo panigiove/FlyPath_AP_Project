@@ -1,6 +1,6 @@
 use log::{info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 

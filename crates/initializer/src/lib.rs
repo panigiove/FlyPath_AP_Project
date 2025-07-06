@@ -461,7 +461,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         thread_handles,
     );
     
-    let controller_handle = thread::spawn(move || {
+    let _controller_handle = thread::spawn(move || {
         controller_handler.run();
     });
 

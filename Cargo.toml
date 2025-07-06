@@ -15,12 +15,12 @@ members = [
 [dependencies]
 eframe = "0.29.0"
 egui = "0.29.0"
-emath = "0.29"
-epaint = "0.29"
 crossbeam-channel = "0.5.13"
 env_logger = "0.10"
 controller = { path = "crates/controller" }
 client = { path = "crates/client" }
-server = { path = "crates/server" }
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 initializer = { path="crates/initializer" }
+
+[profile.dev]
+opt-level = 3

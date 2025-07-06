@@ -1,0 +1,73 @@
+# Tree Topology
+# Four layers: L1(1 node), L2(2 nodes), L3(3 nodes), L4(4 nodes)
+# Each node connects to all nodes in neighboring layers
+# L1: 1
+# L2: 2, 3
+# L3: 4, 5, 6
+# L4: 7, 8, 9, 10
+
+# Layer 1 (Root)
+[[drone]]
+id = 1
+connected_node_ids = [2, 3, 11]
+pdr = 0.05
+
+# Layer 2
+[[drone]]
+id = 2
+connected_node_ids = [1, 4, 5, 6]
+pdr = 0.10
+
+[[drone]]
+id = 3
+connected_node_ids = [1, 4, 5, 6]
+pdr = 0.12
+
+# Layer 3
+[[drone]]
+id = 4
+connected_node_ids = [2, 3, 7, 8, 9, 10]
+pdr = 0.15
+
+[[drone]]
+id = 5
+connected_node_ids = [2, 3, 7, 8, 9, 10]
+pdr = 0.18
+
+[[drone]]
+id = 6
+connected_node_ids = [2, 3, 7, 8, 9, 10]
+pdr = 0.20
+
+# Layer 4 (Leaves)
+[[drone]]
+id = 7
+connected_node_ids = [4, 5, 6, 12]
+pdr = 0.25
+
+[[drone]]
+id = 8
+connected_node_ids = [4, 5, 6, 12]
+pdr = 0.22
+
+[[drone]]
+id = 9
+connected_node_ids = [4, 5, 6, 13]
+pdr = 0.28
+
+[[drone]]
+id = 10
+connected_node_ids = [4, 5, 6, 13]
+pdr = 0.30
+
+[[client]]
+id = 11
+connected_drone_ids = [1]
+
+[[client]]
+id = 12
+connected_drone_ids = [7, 8]
+
+[[server]]
+id = 13
+connected_drone_ids = [9, 10]
