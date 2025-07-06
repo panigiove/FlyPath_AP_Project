@@ -208,8 +208,10 @@ Any packets that are not sent are stored in a buffer. Each server has its own bu
 This component interacts with the entire network. Its UI is composed of three sections:
 
 ### Network Graph Panel
-This area allows direct interaction with the network. The network is represented as a graph, and each node has a label corresponding to its `NodeId`.  
-To interact with the network, you must first click on one or two nodes, or an edge.
+This area allows direct interaction with the network. The network is represented as a graph, and each node has a label corresponding: `NodeType NodeId`.  
+To interact with the network, you must double-click one or two nodes.
+To be sure that your selection is correct check the Selection State:
+
 
 ### Network Controls Panel
 This section contains a list of buttons that become active after selecting some graph components.

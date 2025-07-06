@@ -184,6 +184,8 @@ impl ControllerHandler {
     // ================================ Event Handlers ================================
 
     pub fn handle_button_event(&mut self, event: ButtonEvent) {
+        thread::sleep(std::time::Duration::from_millis(10));
+
         let result = match event {
             ButtonEvent::NewDrone(id, pdr) => {
                 self.spawn_drone(&id, pdr)
@@ -200,12 +202,22 @@ impl ControllerHandler {
             ButtonEvent::Crash(id) => {
                 self.crash_drone(&id)
             },
-            ButtonEvent::RemoveConection(id1, id2) => self.remove_connection(&id1, &id2),
-            ButtonEvent::ChangePdr(id, pdr) => self.change_packet_drop_rate(&id, pdr),
+            ButtonEvent::RemoveConection(id1, id2) => {
+                self.remove_connection(&id1, &id2)
+            },
+            ButtonEvent::ChangePdr(id, pdr) => {
+                self.change_packet_drop_rate(&id, pdr)
+            },
         };
 
         if let Err(e) = result {
-            self.send_error_message(&e.to_string());
+            let error_msg = e.to_string();
+            self.send_error_message(&error_msg);
+
+            thread::sleep(std::time::Duration::from_millis(50));
+        } else {
+
+            thread::sleep(std::time::Duration::from_millis(50));
         }
     }
 
@@ -404,44 +416,35 @@ impl ControllerHandler {
             ));
         }
 
-        // Invia comando crash
         if let Some(sender) = self.send_command_drone.get(id) {
             sender.send(DroneCommand::Crash)
                 .map_err(|e| ControllerError::ChannelSend(format!("Failed to send crash command: {}", e)))?;
         }
 
-        // Aspetta un momento per permettere al drone di processare il crash
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        thread::sleep(std::time::Duration::from_millis(150));
 
-        // Rimuovi connessioni dal grafo PRIMA di modificare lo stato interno
         if let Some(connections) = self.connections.get(id).cloned() {
             for neighbor_id in &connections {
                 let _ = self.send_graph_update(RemoveEdge(*id, *neighbor_id));
             }
         }
 
-        // Rimuovi tutte le connessioni logiche
         self.remove_all_connections(id)?;
 
-        // Drena gli eventi residui
         self.drain_event_channel_improved(id)?;
 
-        // Thread cleanup corretto
         if let Some(handle) = self.thread_handler.remove(id) {
-            // Aspetta che il thread termini gracefully
-            for attempt in 0..20 { // Max 1 secondo
+            for attempt in 0..20 { // Max 1 s
                 if handle.is_finished() {
                     let _ = handle.join();
                     break;
                 }
 
                 if attempt < 19 {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
         }
-
-        // Cleanup delle strutture dati
         self.packet_senders.remove(id);
         self.connections.remove(id);
         self.send_command_drone.remove(id);
@@ -455,11 +458,9 @@ impl ControllerHandler {
 
         self.node_types.remove(id);
 
-        // Aggiorna il grafo per rimuovere il nodo
         self.send_graph_update(RemoveNode(*id))?;
 
-        // Aspetta un momento finale per permettere alla UI di aggiornarsi
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        thread::sleep(std::time::Duration::from_millis(50));
 
         self.send_success_message(&format!("Drone ID [{}] removed successfully", id));
 
@@ -470,7 +471,7 @@ impl ControllerHandler {
         if let Some(receiver) = self.receiver_event.get(drone_id) {
             let mut drained_count = 0;
             let max_iterations = 100;
-            
+
             loop {
                 match receiver.try_recv() {
                     Ok(_event) => {
@@ -484,7 +485,7 @@ impl ControllerHandler {
                     Err(TryRecvError::Disconnected) => break,
                 }
             }
-            
+
             if drained_count > 0 {
                 thread::sleep(std::time::Duration::from_millis(100));
 
@@ -512,11 +513,10 @@ impl ControllerHandler {
             ));
         }
 
-        //creating without connections
         if let Err(e) = self.create_client_without_connection(id) {
             return Err(e);
         }
-        
+
         self.node_types.insert(id, NodeType::Client);
 
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Client)) {
@@ -589,7 +589,7 @@ impl ControllerHandler {
                 format!("Node {} is not a drone", drone2)
             ));
         }
-        
+
         if !self.packet_senders.contains_key(&drone1) {
             return Err(ControllerError::NodeNotFound(drone1));
         }
@@ -658,9 +658,9 @@ impl ControllerHandler {
     }
 
     // ================================ Connection Management ================================
-    
+
     fn add_connection(&mut self, id1: &NodeId, id2: &NodeId) -> Result<(), ControllerError> {
-        
+
         if !self.validate_connection_types(id1, id2) {
             let error_msg = self.get_connection_error_message(id1, id2);
             return Err(ControllerError::NetworkConstraintViolation(error_msg));
@@ -754,7 +754,7 @@ impl ControllerHandler {
     }
 
     // ================================ Connection Validation ================================
-    
+
     fn validate_connection_types(&self, id1: &NodeId, id2: &NodeId) -> bool {
         let node1_type = self.node_types.get(id1);
         let node2_type = self.node_types.get(id2);
@@ -775,7 +775,7 @@ impl ControllerHandler {
             _ => false, //non existing nodes
         }
     }
-    
+
     fn get_connection_error_message(&self, id1: &NodeId, id2: &NodeId) -> String {
         let node1_type = self.node_types.get(id1);
         let node2_type = self.node_types.get(id2);
@@ -894,7 +894,7 @@ impl ControllerHandler {
         }
 
         for neighbor_id in connections {
-            // Retry logic for delete connection
+            // Rimuovi i sender dal nodo verso il neighbor
             for attempt in 0..3 {
                 match self.remove_sender(id, &neighbor_id) {
                     Ok(()) => break,
@@ -904,6 +904,21 @@ impl ControllerHandler {
                         }
                     }
                 }
+            }
+
+            for attempt in 0..3 {
+                match self.remove_sender(&neighbor_id, id) {
+                    Ok(()) => break,
+                    Err(_) => {
+                        if attempt < 2 {
+                            thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                    }
+                }
+            }
+
+            if let Some(neighbor_connections) = self.connections.get_mut(&neighbor_id) {
+                neighbor_connections.retain(|&conn_id| conn_id != *id);
             }
         }
 
@@ -967,9 +982,9 @@ impl ControllerHandler {
 
     fn check_network_before_add_server_with_two_connections(&self, server_id: &NodeId, drone1: &NodeId, drone2: &NodeId) -> bool {
         let mut adj_list = self.connections.clone();
-        
+
         adj_list.insert(*server_id, vec![*drone1, *drone2]);
-        
+
         if let Some(drone1_connections) = adj_list.get_mut(drone1) {
             drone1_connections.push(*server_id);
         }
@@ -1223,12 +1238,12 @@ impl ControllerHandler {
         }
         true
     }
-    
+
     fn check_network_before_add_connection(&self, id1: &NodeId, id2: &NodeId) -> bool {
         if !self.validate_connection_types(id1, id2) {
             return false;
         }
-        
+
         let mut adj_list = self.connections.clone();
 
         if let Some(neighbors) = adj_list.get_mut(id1) {
@@ -1296,19 +1311,34 @@ impl ControllerHandler {
     }
 
     fn send_success_message(&self, msg: &str) {
-        let _ = self.message_sender.try_send(MessageType::Ok(msg.to_string()));
+        match self.message_sender.try_send(MessageType::Ok(msg.to_string())) {
+            Ok(()) => {
+                thread::sleep(std::time::Duration::from_millis(300));
+            }
+            _other => {}
+        }
+
     }
 
     fn send_info_message(&self, msg: &str) {
-        let _ = self.message_sender.try_send(MessageType::PacketSent(msg.to_string()));
+        let _ = self.message_sender.try_send(MessageType::Info(msg.to_string()));
     }
 
     fn send_error_message(&self, msg: &str) {
-        let _ = self.message_sender.try_send(MessageType::Error(msg.to_string()));
+        match self.message_sender.try_send(MessageType::Error(msg.to_string())) {
+            Ok(()) => {
+                thread::sleep(std::time::Duration::from_millis(300));
+            }
+            _other => {}
+        }
     }
 
     fn send_client_state_safe(&self, node_id: NodeId, client_state: ClientState) -> bool {
         self.client_state_sender.try_send((node_id, client_state)).is_ok()
+    }
+
+    pub fn test_message_channel(&self) {
+        let _ = self.message_sender.try_send(MessageType::Info("Channel test message".to_string()));
     }
 }
 
@@ -1316,11 +1346,11 @@ impl ControllerHandler {
 
 pub fn is_connected_after_removal_fixed(adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
     let mut all_nodes = std::collections::HashSet::new();
-    
+
     for &node_id in adj_list.keys() {
         all_nodes.insert(node_id);
     }
-    
+
     for neighbors in adj_list.values() {
         for &neighbor_id in neighbors {
             all_nodes.insert(neighbor_id);
@@ -1336,7 +1366,7 @@ pub fn is_connected_after_removal_fixed(adj_list: &HashMap<NodeId, Vec<NodeId>>)
     if remaining_nodes.len() == 1 {
         return true;
     }
-    
+
     let start_node = remaining_nodes[0];
     let reachable_count = count_reachable_nodes_robust(start_node, adj_list, &remaining_nodes);
 

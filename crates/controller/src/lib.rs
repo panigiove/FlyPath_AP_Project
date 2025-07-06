@@ -6,6 +6,8 @@ mod drawable;
 
 // Re-export
 pub use view::graph::GraphApp;
+pub use view::buttons::ButtonWindow;
+pub use view::messages_view::MessagesWindow;
 pub use utility::*;
 
 pub use crate::controller_ui::*;

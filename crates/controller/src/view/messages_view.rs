@@ -16,7 +16,7 @@ impl MessagesWindow {
         Self {
             messages_receiver: receiver,
             log: Vec::new(),
-            max_messages: 1000,
+            max_messages: 5000,
             auto_scroll: true,
         }
     }

@@ -32,7 +32,7 @@ impl ControllerUi {
     ) -> Self {
 
         let (button_messages_sender, button_messages_receiver) = unbounded::<ButtonsMessages>();
-        
+
         let (node_clicked_sender, node_clicked_receiver) = unbounded::<NodeId>(); // ✅ RIMOSSO: (NodeId) -> NodeId
 
         let graph_app = GraphApp::new(
@@ -66,7 +66,7 @@ impl ControllerUi {
 
 impl ControllerUi {
     pub fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        
+
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.button_window.clear_selection();
         }
@@ -74,13 +74,13 @@ impl ControllerUi {
         self.button_window.update();
         self.messages_window.update();
         self.graph_app.handle_pending_events();
-        
+
         self.graph_app.update();
     }
 
     pub fn render(&mut self, ctx: &Context, _frame: &mut Frame) {
         egui::TopBottomPanel::bottom("Message panel")
-            .resizable(false)           
+            .resizable(false)
             .exact_height(200.0)
             .show(ctx, |ui| {
                 self.messages_window.render(ui);
