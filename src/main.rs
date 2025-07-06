@@ -1,4 +1,4 @@
-use client::comunication::{FromUiCommunication, ToUICommunication};
+use client::communication::{FromUiCommunication, ToUICommunication};
 use client::ui::{ClientState, Ui, UiState};
 use crossbeam_channel::{Receiver, Sender};
 use eframe::{egui, Frame};

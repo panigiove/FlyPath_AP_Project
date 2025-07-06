@@ -16,7 +16,7 @@ use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, NodeType, Pac
 type Weight = u32;
 type Session = u64;
 
-const NEW_STATE_GRACE_PERIOD: Duration = Duration::from_secs(3); // TODO: is too much? evaluate
+const NEW_STATE_GRACE_PERIOD: Duration = Duration::from_secs(3);
 const FLOOD_INTERVAL: Duration = Duration::from_secs(10);
 const ERROR_SCALE: u32 = 30;
 const DROP_SCALE: u32 = 20;

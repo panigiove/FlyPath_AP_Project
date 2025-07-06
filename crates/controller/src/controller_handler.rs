@@ -26,7 +26,7 @@ use wg_2024::drone::Drone;
 use message::NodeCommand::FromShortcut;
 
 use client;
-use client::comunication::{FromUiCommunication, ToUICommunication};
+use client::communication::{FromUiCommunication, ToUICommunication};
 use client::ui::{ClientState};
 use client::worker::Worker;
 use server::ChatServer;

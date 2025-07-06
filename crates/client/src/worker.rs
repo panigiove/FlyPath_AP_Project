@@ -1,6 +1,6 @@
 use crate::channel::ChannelManager;
-use crate::comunication::FromUiCommunication::{AskClientList, RefreshTopology, SendChatMessage};
-use crate::comunication::{FromUiCommunication, ToUICommunication};
+use crate::communication::FromUiCommunication::{AskClientList, RefreshTopology, SendChatMessage};
+use crate::communication::{FromUiCommunication, ToUICommunication};
 use crate::message::MessagerManager;
 use crate::network::NetworkManager;
 use crossbeam_channel::{select_biased, Receiver, Sender};

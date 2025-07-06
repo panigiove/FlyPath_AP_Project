@@ -1,4 +1,4 @@
-use client::comunication::{FromUiCommunication, ToUICommunication};
+use client::communication::{FromUiCommunication, ToUICommunication};
 use client::worker::Worker;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use message::{NodeCommand, NodeEvent};

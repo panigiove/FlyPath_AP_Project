@@ -1,5 +1,5 @@
 mod channel;
-pub mod comunication;
+pub mod communication;
 mod message;
 mod network;
 mod test;
