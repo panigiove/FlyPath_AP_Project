@@ -26,7 +26,7 @@ pub enum NodeType{
     Client
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GraphAction {
     AddNode(NodeId, NodeType),
     RemoveNode(NodeId),

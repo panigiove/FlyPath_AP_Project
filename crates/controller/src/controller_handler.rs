@@ -1,5 +1,5 @@
 use message::{NodeCommand, NodeEvent};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender, unbounded, TryRecvError};
 use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
@@ -21,7 +21,6 @@ use rusty_drones::RustyDrone;
 
 use crate::utility::{ButtonEvent, GraphAction, NodeType, MessageType, DroneGroup};
 use crate::utility::GraphAction::{AddEdge, AddNode, RemoveEdge, RemoveNode};
-use crate::utility::MessageType::{Error, PacketSent};
 use rand::seq::SliceRandom;
 use wg_2024::drone::Drone;
 use message::NodeCommand::FromShortcut;
@@ -54,24 +53,24 @@ impl std::fmt::Display for ControllerError {
 impl std::error::Error for ControllerError {}
 
 pub struct ControllerHandler {
-    pub node_types: HashMap<NodeId, NodeType>,
-    pub drones_types: HashMap<NodeId, DroneGroup>,
-    
-    pub packet_senders: HashMap<NodeId, Sender<Packet>>,
-    pub connections: HashMap<NodeId, Vec<NodeId>>,
-    pub send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
-    pub send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
-    pub receiver_event: HashMap<NodeId, Receiver<DroneEvent>>,
-    pub receiver_node_event: HashMap<NodeId, Receiver<NodeEvent>>,
-    
-    pub button_receiver: Receiver<ButtonEvent>,
-    pub graph_action_sender: Sender<GraphAction>,
-    pub message_sender: Sender<MessageType>,
-    pub client_state_sender: Sender<(NodeId, ClientState)>,
+    node_types: HashMap<NodeId, NodeType>,
+    drones_types: HashMap<NodeId, DroneGroup>,
 
-    pub drones_counter: HashMap<DroneGroup, i8>,
+    packet_senders: HashMap<NodeId, Sender<Packet>>,
+    connections: HashMap<NodeId, Vec<NodeId>>,
+    send_command_drone: HashMap<NodeId, Sender<DroneCommand>>,
+    send_command_node: HashMap<NodeId, Sender<NodeCommand>>,
+    receiver_event: HashMap<NodeId, Receiver<DroneEvent>>,
+    receiver_node_event: HashMap<NodeId, Receiver<NodeEvent>>,
 
-    pub thread_handler: Vec<JoinHandle<()>>,
+    button_receiver: Receiver<ButtonEvent>,
+    graph_action_sender: Sender<GraphAction>,
+    message_sender: Sender<MessageType>,
+    client_state_sender: Sender<(NodeId, ClientState)>,
+
+    drones_counter: HashMap<DroneGroup, i8>,
+
+    thread_handler: HashMap<NodeId, JoinHandle<()>>,
 }
 
 impl ControllerHandler {
@@ -89,7 +88,7 @@ impl ControllerHandler {
         message_sender: Sender<MessageType>,
         client_state_sender: Sender<(NodeId, ClientState)>,
         drones_counter: HashMap<DroneGroup, i8>,
-        thread_handler: Vec<JoinHandle<()>>,
+        thread_handler: HashMap<NodeId, JoinHandle<()>>,
     ) -> Self {
 
         Self {
@@ -109,7 +108,7 @@ impl ControllerHandler {
             thread_handler,
         }
     }
-    
+
     pub fn run(&mut self) {
         loop {
             let mut button_events_processed = 0;
@@ -121,7 +120,7 @@ impl ControllerHandler {
                     break;
                 }
             }
-            
+
             let drone_node_ids: Vec<NodeId> = self.receiver_event.keys().copied().collect();
             let mut drone_events_processed = 0;
             for node_id in drone_node_ids {
@@ -135,7 +134,7 @@ impl ControllerHandler {
                         }
                     }
                 }
-                
+
                 for event in events_to_process {
                     self.handle_drone_event(event, node_id);
                     drone_events_processed += 1;
@@ -146,7 +145,7 @@ impl ControllerHandler {
                     break;
                 }
             }
-            
+
             let node_node_ids: Vec<NodeId> = self.receiver_node_event.keys().copied().collect();
             let mut node_events_processed = 0;
             for node_id in node_node_ids {
@@ -160,12 +159,12 @@ impl ControllerHandler {
                         }
                     }
                 }
-                
+
                 for event in events_to_process {
                     self.handle_node_event(event, node_id);
                     node_events_processed += 1;
                 }
-                
+
                 if node_events_processed >= 20 {
                     break;
                 }
@@ -183,7 +182,7 @@ impl ControllerHandler {
     }
 
     // ================================ Event Handlers ================================
-    
+
     pub fn handle_button_event(&mut self, event: ButtonEvent) {
         let result = match event {
             ButtonEvent::NewDrone(id, pdr) => {
@@ -209,7 +208,7 @@ impl ControllerHandler {
             self.send_error_message(&e.to_string());
         }
     }
-    
+
     fn handle_node_event(&mut self, event: NodeEvent, node_id: NodeId) {
         match event {
             NodeEvent::PacketSent(c) => {
@@ -234,7 +233,7 @@ impl ControllerHandler {
             }
         }
     }
-    
+
     pub fn handle_drone_event(&mut self, event: DroneEvent, drone_id: NodeId) {
         match event {
             DroneEvent::PacketSent(packet) => {
@@ -254,14 +253,14 @@ impl ControllerHandler {
             }
         }
     }
-    
+
 
     // ================================ Drone Operations ================================
 
     fn spawn_drone(&mut self, first_connection: &NodeId, pdr: f32) -> Result<(), ControllerError> {
         let id = self.generate_random_id()?;
-        
-        
+
+
         if !self.packet_senders.contains_key(first_connection) {
             return Err(ControllerError::NodeNotFound(*first_connection));
         }
@@ -271,7 +270,7 @@ impl ControllerHandler {
                 format!("Cannot add a new drone connected to {}", first_connection)
             ));
         }
-        
+
         self.node_types.insert(id, NodeType::Drone);
 
         //creating the drone without connections
@@ -279,7 +278,7 @@ impl ControllerHandler {
             self.node_types.remove(&id);
             return Err(e);
         }
-        
+
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Drone)) {
             self.cleanup_drone(&id);
             return Err(e);
@@ -301,7 +300,7 @@ impl ControllerHandler {
         let (sender_drone_command, receiver_drone_command) = unbounded::<DroneCommand>();
         let (sender_packet, receiver_packet) = unbounded::<Packet>();
 
-        let senders = HashMap::new(); // Vuoto inizialmente
+        let senders = HashMap::new();
         let drone_group = self.create_balanced_drone(
             id, sender_event, receiver_drone_command, receiver_packet, senders, pdr
         )?;
@@ -309,7 +308,7 @@ impl ControllerHandler {
         //insert all drone-related data
         self.drones_types.insert(id, drone_group);
         self.packet_senders.insert(id, sender_packet);
-        self.connections.insert(id, Vec::new()); // Vuoto inizialmente
+        self.connections.insert(id, Vec::new());
         self.send_command_drone.insert(id, sender_drone_command.clone());
         self.receiver_event.insert(id, receiver_event);
 
@@ -363,7 +362,7 @@ impl ControllerHandler {
                 drone.run();
             })
             .expect("Can't spawn Drone");
-        self.thread_handler.push(handle);
+        self.thread_handler.insert(id, handle);
         Ok(drone_group)
     }
 
@@ -391,11 +390,11 @@ impl ControllerHandler {
 
         selected
     }
-    
+
     fn crash_drone(&mut self, id: &NodeId) -> Result<(), ControllerError> {
         if !self.is_drone(id) {
             return Err(ControllerError::InvalidOperation(
-                format!("Node {} is not a drone", id)
+                format!("Node ID [{}] is not a drone", id)
             ));
         }
 
@@ -405,40 +404,100 @@ impl ControllerHandler {
             ));
         }
 
-        self.remove_drone(id)?;
-
-        // Remove from node_types
-        self.node_types.remove(id);
-
-        self.send_graph_update(RemoveNode(*id))?;
-        self.send_success_message(&format!("Drone ID [{}] removed successfully", id));
-
-        Ok(())
-    }
-
-    fn remove_drone(&mut self, id: &NodeId) -> Result<(), ControllerError> {
-        // Send crash command to drone
+        // Invia comando crash
         if let Some(sender) = self.send_command_drone.get(id) {
             sender.send(DroneCommand::Crash)
-                .map_err(|e| ControllerError::ChannelSend(format!("Failed to send crash command to drone ID [{}]: {}", id, e)))?;
+                .map_err(|e| ControllerError::ChannelSend(format!("Failed to send crash command: {}", e)))?;
         }
 
-        // Remove all connections
+        // Aspetta un momento per permettere al drone di processare il crash
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
+        // Rimuovi connessioni dal grafo PRIMA di modificare lo stato interno
+        if let Some(connections) = self.connections.get(id).cloned() {
+            for neighbor_id in &connections {
+                let _ = self.send_graph_update(RemoveEdge(*id, *neighbor_id));
+            }
+        }
+
+        // Rimuovi tutte le connessioni logiche
         self.remove_all_connections(id)?;
 
-        // Clean up data structures
+        // Drena gli eventi residui
+        self.drain_event_channel_improved(id)?;
+
+        // Thread cleanup corretto
+        if let Some(handle) = self.thread_handler.remove(id) {
+            // Aspetta che il thread termini gracefully
+            for attempt in 0..20 { // Max 1 secondo
+                if handle.is_finished() {
+                    let _ = handle.join();
+                    break;
+                }
+
+                if attempt < 19 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
+        }
+
+        // Cleanup delle strutture dati
         self.packet_senders.remove(id);
         self.connections.remove(id);
         self.send_command_drone.remove(id);
         self.receiver_event.remove(id);
 
-        // Update counter
         if let Some(drone_group) = self.drones_types.remove(id) {
             if let Some(count) = self.drones_counter.get_mut(&drone_group) {
                 *count -= 1;
             }
         }
 
+        self.node_types.remove(id);
+
+        // Aggiorna il grafo per rimuovere il nodo
+        self.send_graph_update(RemoveNode(*id))?;
+
+        // Aspetta un momento finale per permettere alla UI di aggiornarsi
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        self.send_success_message(&format!("Drone ID [{}] removed successfully", id));
+
+        Ok(())
+    }
+
+    fn drain_event_channel_improved(&mut self, drone_id: &NodeId) -> Result<(), ControllerError> {
+        if let Some(receiver) = self.receiver_event.get(drone_id) {
+            let mut drained_count = 0;
+            let max_iterations = 100;
+            
+            loop {
+                match receiver.try_recv() {
+                    Ok(_event) => {
+                        drained_count += 1;
+
+                        if drained_count >= max_iterations {
+                            break;
+                        }
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => break,
+                }
+            }
+            
+            if drained_count > 0 {
+                thread::sleep(std::time::Duration::from_millis(100));
+
+                loop {
+                    match receiver.try_recv() {
+                        Ok(_event) => {
+                            drained_count += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -457,15 +516,14 @@ impl ControllerHandler {
         if let Err(e) = self.create_client_without_connection(id) {
             return Err(e);
         }
-
-        // Update node_types
-        self.node_types.insert(id, NodeType::Client);
         
+        self.node_types.insert(id, NodeType::Client);
+
         if let Err(e) = self.send_graph_update(AddNode(id, NodeType::Client)) {
             self.cleanup_client(&id);
             return Err(e);
         }
-        
+
         if let Err(e) = self.add_connection(&id, &id_connection) {
             let _ = self.send_graph_update(RemoveNode(id));
             self.cleanup_client(&id);
@@ -475,7 +533,7 @@ impl ControllerHandler {
         self.send_success_message(format!("New client added successfully with ID [{}]", id).as_str());
         Ok(())
     }
-    
+
     fn create_client_without_connection(&mut self, id: NodeId) -> Result<(), ControllerError> {
         let (p_send, p_receiver) = unbounded::<Packet>();
         let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
@@ -484,12 +542,13 @@ impl ControllerHandler {
         let (from_ui_communication_send, from_ui_communication_receiver) = unbounded::<FromUiCommunication>();
 
         let client_state = ClientState::new(id, ui_communication_receiver, from_ui_communication_send);
-        if let Err(_e) = self.client_state_sender.try_send((id, client_state)) {
+
+        if !self.send_client_state_safe(id, client_state) {
             return Err(ControllerError::InvalidOperation(
-                "Client can't be added to the ui".to_string()
+                "Client can't be added to the ui due to channel issue".to_string()
             ));
         }
-        
+
         self.packet_senders.insert(id, p_send);
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send.clone());
@@ -511,11 +570,11 @@ impl ControllerHandler {
                 worker.run();
             })
             .expect("Can't spawn thread Worker");
-        self.thread_handler.push(handle);
-        
+        self.thread_handler.insert(id, handle);
+
         Ok(())
     }
-    
+
     fn create_server_with_two_connections(&mut self, drone1: NodeId, drone2: NodeId) -> Result<(), ControllerError> {
         let id = self.generate_random_id()?;
 
@@ -530,8 +589,7 @@ impl ControllerHandler {
                 format!("Node {} is not a drone", drone2)
             ));
         }
-
-        // Verifica che i droni esistano
+        
         if !self.packet_senders.contains_key(&drone1) {
             return Err(ControllerError::NodeNotFound(drone1));
         }
@@ -568,12 +626,12 @@ impl ControllerHandler {
             }
         }
     }
-    
+
     fn create_server_without_connection(&mut self, id: NodeId) -> Result<(), ControllerError> {
         let (p_send, p_receiver) = unbounded::<Packet>();
         let (node_event_send, node_event_receiver) = unbounded::<NodeEvent>();
         let (node_command_send, node_command_receiver) = unbounded::<NodeCommand>();
-        
+
         self.packet_senders.insert(id, p_send);
         self.connections.insert(id, Vec::new());
         self.send_command_node.insert(id, node_command_send.clone());
@@ -593,9 +651,8 @@ impl ControllerHandler {
                 chat_server.run();
             })
             .expect("Can't spawn Server");
-        
-        self.thread_handler.push(handle);
-        
+
+        self.thread_handler.insert(id, handle);
 
         Ok(())
     }
@@ -604,6 +661,11 @@ impl ControllerHandler {
     
     fn add_connection(&mut self, id1: &NodeId, id2: &NodeId) -> Result<(), ControllerError> {
         
+        if !self.validate_connection_types(id1, id2) {
+            let error_msg = self.get_connection_error_message(id1, id2);
+            return Err(ControllerError::NetworkConstraintViolation(error_msg));
+        }
+
         if !self.check_network_before_add_connection(id1, id2) {
             return Err(ControllerError::NetworkConstraintViolation(
                 format!("Cannot add connection between Node ID [{}] and Node ID [{}]", id1, id2)
@@ -630,17 +692,17 @@ impl ControllerHandler {
             }
 
             if attempt < 4 {
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                thread::sleep(std::time::Duration::from_millis(50));
             }
         }
-        
+
         if !id1_ready {
             return Err(ControllerError::NodeNotFound(*id1));
         }
         if !id2_ready {
             return Err(ControllerError::NodeNotFound(*id2));
         }
-        
+
         if let Err(e) = self.add_sender_safe(id1, id2) {
             return Err(e);
         }
@@ -650,7 +712,7 @@ impl ControllerHandler {
             let _ = self.remove_sender(id1, id2);
             return Err(e);
         }
-        
+
         if let Some(connections) = self.connections.get_mut(id1) {
             if !connections.contains(id2) {
                 connections.push(*id2);
@@ -661,7 +723,7 @@ impl ControllerHandler {
                 connections.push(*id1);
             }
         }
-        
+
         self.send_graph_update(AddEdge(*id1, *id2))?;
         self.send_success_message(&format!("Connection added between Node ID [{}] and Node ID [{}]", id1, id2));
 
@@ -691,8 +753,50 @@ impl ControllerHandler {
         Ok(())
     }
 
-    // ================================ Helper Methods ================================
+    // ================================ Connection Validation ================================
     
+    fn validate_connection_types(&self, id1: &NodeId, id2: &NodeId) -> bool {
+        let node1_type = self.node_types.get(id1);
+        let node2_type = self.node_types.get(id2);
+
+        match (node1_type, node2_type) {
+            (Some(NodeType::Client), Some(NodeType::Drone)) => true,
+            (Some(NodeType::Drone), Some(NodeType::Client)) => true,
+            (Some(NodeType::Drone), Some(NodeType::Drone)) => true,
+            (Some(NodeType::Drone), Some(NodeType::Server)) => true,
+            (Some(NodeType::Server), Some(NodeType::Drone)) => true,
+
+            //forbidden connections
+            (Some(NodeType::Client), Some(NodeType::Client)) => false,
+            (Some(NodeType::Client), Some(NodeType::Server)) => false,
+            (Some(NodeType::Server), Some(NodeType::Client)) => false,
+            (Some(NodeType::Server), Some(NodeType::Server)) => false,
+
+            _ => false, //non existing nodes
+        }
+    }
+    
+    fn get_connection_error_message(&self, id1: &NodeId, id2: &NodeId) -> String {
+        let node1_type = self.node_types.get(id1);
+        let node2_type = self.node_types.get(id2);
+
+        match (node1_type, node2_type) {
+            (Some(NodeType::Client), Some(NodeType::Server)) |
+            (Some(NodeType::Server), Some(NodeType::Client)) => {
+                "Direct connections between Clients and Servers are not allowed.".to_string()
+            }
+            (Some(NodeType::Client), Some(NodeType::Client)) => {
+                "Direct connections between Clients are not allowed.".to_string()
+            }
+            (Some(NodeType::Server), Some(NodeType::Server)) => {
+                "Direct connections between Servers are not allowed.".to_string()
+            }
+            _ => "This type of connection is not permitted.".to_string()
+        }
+    }
+
+    // ================================ Helper Methods ================================
+
     fn add_sender_safe(&mut self, id: &NodeId, dst_id: &NodeId) -> Result<(), ControllerError> {
         let dst_sender = self.packet_senders.get(dst_id)
             .ok_or_else(|| ControllerError::NodeNotFound(*dst_id))?
@@ -717,7 +821,7 @@ impl ControllerHandler {
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
-                                format!("Drone {} channel permanently disconnected", id)
+                                format!("Drone ID [{}] channel permanently disconnected", id)
                             ));
                         }
                     }
@@ -725,7 +829,7 @@ impl ControllerHandler {
             }
 
             Err(ControllerError::ChannelSend(
-                format!("Failed to send command to drone {} after 5 attempts", id)
+                format!("Failed to send command to Drone ID [{}] after 5 attempts", id)
             ))
 
         } else {
@@ -761,7 +865,7 @@ impl ControllerHandler {
             }
 
             Err(ControllerError::ChannelSend(
-                format!("Failed to send command to node {} after 5 attempts", id)
+                format!("Failed to send command to node ID [{}] after 5 attempts", id)
             ))
         }
     }
@@ -785,8 +889,22 @@ impl ControllerHandler {
     fn remove_all_connections(&mut self, id: &NodeId) -> Result<(), ControllerError> {
         let connections = self.connections.get(id).cloned().unwrap_or_default();
 
+        if connections.is_empty() {
+            return Ok(());
+        }
+
         for neighbor_id in connections {
-            self.remove_sender(id, &neighbor_id)?;
+            // Retry logic for delete connection
+            for attempt in 0..3 {
+                match self.remove_sender(id, &neighbor_id) {
+                    Ok(()) => break,
+                    Err(_) => {
+                        if attempt < 2 {
+                            thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -795,7 +913,7 @@ impl ControllerHandler {
     pub(crate) fn change_packet_drop_rate(&mut self, id: &NodeId, new_pdr: f32) -> Result<(), ControllerError> {
         if !self.is_drone(id) {
             return Err(ControllerError::InvalidOperation(
-                format!("Node {} is not a drone", id)
+                format!("Node ID [{}] is not a drone", id)
             ));
         }
 
@@ -805,30 +923,26 @@ impl ControllerHandler {
         sender.send(DroneCommand::SetPacketDropRate(new_pdr))
             .map_err(|e| ControllerError::ChannelSend(e.to_string()))?;
 
-        self.send_success_message(&format!("PDR for drone {} changed to {}", id, new_pdr));
+        self.send_success_message(&format!("PDR for Drone ID [{}] changed to {}", id, new_pdr));
         Ok(())
     }
 
-    // ✅ FIX: send_packet_to_client gestisce sia Client che Server
     pub(crate) fn send_packet_to_client(&self, packet: Packet) -> Result<(), ControllerError> {
-        // ✅ FIX: Salva i valori prima di spostare packet
         let _ = packet.session_id;
         let destination = packet.routing_header.hops.last().copied();
 
-
         if let Some(destination) = destination {
-
             match self.get_node_type(&destination) {
                 Some(NodeType::Client) => {
                     let sender = self.send_command_node.get(&destination)
                         .ok_or_else(|| ControllerError::NodeNotFound(destination))?;
-                    sender.try_send(FromShortcut(packet))  // ✅ packet moved qui
+                    sender.try_send(FromShortcut(packet))
                         .map_err(|e| ControllerError::ChannelSend(e.to_string()))?;
                 }
                 Some(NodeType::Server) => {
                     let sender = self.send_command_node.get(&destination)
                         .ok_or_else(|| ControllerError::NodeNotFound(destination))?;
-                    sender.try_send(FromShortcut(packet))  // ✅ packet moved qui
+                    sender.try_send(FromShortcut(packet))
                         .map_err(|e| ControllerError::ChannelSend(e.to_string()))?;
                 }
                 Some(NodeType::Drone) => {
@@ -850,26 +964,24 @@ impl ControllerHandler {
     }
 
     // ================================ Atomic Server Creation Helpers ================================
-    
+
     fn check_network_before_add_server_with_two_connections(&self, server_id: &NodeId, drone1: &NodeId, drone2: &NodeId) -> bool {
         let mut adj_list = self.connections.clone();
-
-        // Simula l'aggiunta del server con entrambe le connessioni
+        
         adj_list.insert(*server_id, vec![*drone1, *drone2]);
-
-        // Aggiorna le connessioni dei droni
+        
         if let Some(drone1_connections) = adj_list.get_mut(drone1) {
             drone1_connections.push(*server_id);
         }
         if let Some(drone2_connections) = adj_list.get_mut(drone2) {
             drone2_connections.push(*server_id);
         }
-        
+
         self.validate_network_constraints(&adj_list)
     }
-    
+
     fn add_server_connections(&mut self, server_id: &NodeId, drone1: &NodeId, drone2: &NodeId) -> Result<(), ControllerError> {
-        
+
         if !self.packet_senders.contains_key(server_id) {
             return Err(ControllerError::NodeNotFound(*server_id));
         }
@@ -920,7 +1032,7 @@ impl ControllerHandler {
                 drone2_connections.push(*server_id);
             }
         }
-        
+
         if let Err(e) = self.send_graph_update(AddEdge(*server_id, *drone1)) {
             return Err(e);
         }
@@ -941,19 +1053,19 @@ impl ControllerHandler {
         if self.is_drone(id) {
             let sender = self.send_command_drone.get(id)
                 .ok_or_else(|| ControllerError::NodeNotFound(*id))?;
-            
+
             for attempt in 0..5 {
                 match sender.try_send(DroneCommand::AddSender(*dst_id, dst_sender.clone())) {
                     Ok(()) => {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        thread::sleep(std::time::Duration::from_millis(50));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            thread::sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
@@ -979,12 +1091,12 @@ impl ControllerHandler {
                         return Ok(());
                     }
                     Err(crossbeam_channel::TrySendError::Full(_)) => {
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        thread::sleep(std::time::Duration::from_millis(50));
                         continue;
                     }
                     Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                         if attempt < 4 {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            thread::sleep(std::time::Duration::from_millis(100));
                             continue;
                         } else {
                             return Err(ControllerError::ChannelSend(
@@ -1029,20 +1141,20 @@ impl ControllerHandler {
         self.send_command_node.remove(id);
         self.receiver_node_event.remove(id);
     }
-    
+
     fn complete_cleanup_server(&mut self, id: &NodeId) {
-        
+
         self.node_types.remove(id);
-        
+
         let connections = self.connections.get(id).cloned().unwrap_or_default();
         for neighbor_id in connections {
             if let Some(neighbor_connections) = self.connections.get_mut(&neighbor_id) {
                 neighbor_connections.retain(|&conn_id| &conn_id != id);
             }
-            
+
             let _ = self.remove_sender(&neighbor_id, id);
         }
-        
+
         self.packet_senders.remove(id);
         self.connections.remove(id);
         self.send_command_node.remove(id);
@@ -1088,7 +1200,7 @@ impl ControllerHandler {
 
         self.validate_network_constraints(&adj_list)
     }
-    
+
     fn check_network_before_removing_drone(&self, drone_id: &NodeId) -> bool {
 
         let mut adj_list = self.connections.clone();
@@ -1111,8 +1223,12 @@ impl ControllerHandler {
         }
         true
     }
-
+    
     fn check_network_before_add_connection(&self, id1: &NodeId, id2: &NodeId) -> bool {
+        if !self.validate_connection_types(id1, id2) {
+            return false;
+        }
+        
         let mut adj_list = self.connections.clone();
 
         if let Some(neighbors) = adj_list.get_mut(id1) {
@@ -1161,45 +1277,57 @@ impl ControllerHandler {
     // ================================ Message Helpers ================================
 
     fn send_graph_update(&self, action: GraphAction) -> Result<(), ControllerError> {
-        match self.graph_action_sender.try_send(action) {
-            Ok(()) => {
-                Ok(())
+        match self.graph_action_sender.try_send(action.clone()) {
+            Ok(()) => Ok(()),
+            Err(crossbeam_channel::TrySendError::Full(_)) => {
+                // Channel pieno -> try multiple times
+                for _ in 0..3 {
+                    thread::sleep(std::time::Duration::from_millis(10));
+                    if self.graph_action_sender.try_send(action.clone()).is_ok() {
+                        return Ok(());
+                    }
+                }
+                Err(ControllerError::ChannelSend("Graph update channel is full".to_string()))
             }
-            Err(e) => {
-                Err(ControllerError::ChannelSend(format!("Graph update failed: {}", e)))
+            Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                Ok(()) // Silently ignore disconnected channels
             }
         }
     }
 
     fn send_success_message(&self, msg: &str) {
-        match self.message_sender.try_send(MessageType::Ok(msg.to_string())) {
-            Ok(()) => {},
-            Err(_) => {
-            }
-        }
+        let _ = self.message_sender.try_send(MessageType::Ok(msg.to_string()));
     }
 
     fn send_info_message(&self, msg: &str) {
-        match self.message_sender.try_send(PacketSent(msg.to_string())) {
-            Ok(()) => {},
-            Err(_) => {
-            }
-        }
+        let _ = self.message_sender.try_send(MessageType::PacketSent(msg.to_string()));
     }
 
     fn send_error_message(&self, msg: &str) {
-        match self.message_sender.try_send(Error(msg.to_string())) {
-            Ok(()) => {},
-            Err(_) => {
-            }
-        }
+        let _ = self.message_sender.try_send(MessageType::Error(msg.to_string()));
+    }
+
+    fn send_client_state_safe(&self, node_id: NodeId, client_state: ClientState) -> bool {
+        self.client_state_sender.try_send((node_id, client_state)).is_ok()
     }
 }
 
 // ================================ Helper Functions ================================
 
 pub fn is_connected_after_removal_fixed(adj_list: &HashMap<NodeId, Vec<NodeId>>) -> bool {
-    let remaining_nodes: Vec<NodeId> = adj_list.keys().copied().collect();
+    let mut all_nodes = std::collections::HashSet::new();
+    
+    for &node_id in adj_list.keys() {
+        all_nodes.insert(node_id);
+    }
+    
+    for neighbors in adj_list.values() {
+        for &neighbor_id in neighbors {
+            all_nodes.insert(neighbor_id);
+        }
+    }
+
+    let remaining_nodes: Vec<NodeId> = all_nodes.into_iter().collect();
 
     if remaining_nodes.is_empty() {
         return true;
@@ -1208,14 +1336,18 @@ pub fn is_connected_after_removal_fixed(adj_list: &HashMap<NodeId, Vec<NodeId>>)
     if remaining_nodes.len() == 1 {
         return true;
     }
-
-    //start DFS from the first remaining node
+    
     let start_node = remaining_nodes[0];
-    let reachable_count = count_reachable_nodes(start_node, adj_list);
+    let reachable_count = count_reachable_nodes_robust(start_node, adj_list, &remaining_nodes);
+
     reachable_count == remaining_nodes.len()
 }
 
-fn count_reachable_nodes(start: NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>) -> usize {
+fn count_reachable_nodes_robust(
+    start: NodeId,
+    adj_list: &HashMap<NodeId, Vec<NodeId>>,
+    all_nodes: &[NodeId]
+) -> usize {
     let mut visited = std::collections::HashSet::new();
     let mut stack = vec![start];
 
@@ -1223,7 +1355,7 @@ fn count_reachable_nodes(start: NodeId, adj_list: &HashMap<NodeId, Vec<NodeId>>)
         if visited.insert(current) {
             if let Some(neighbors) = adj_list.get(&current) {
                 for &neighbor in neighbors {
-                    if !visited.contains(&neighbor) {
+                    if !visited.contains(&neighbor) && all_nodes.contains(&neighbor) {
                         stack.push(neighbor);
                     }
                 }

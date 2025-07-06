@@ -131,8 +131,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
         sender_receiver_node_command.insert(node.id, (sender_node_command, receiver_node_command));
         sender_receiver_packet.insert(node.id, (sender_packet, receiver_packet));
     }
-
-    let mut thread_handles = Vec::new();
+    let mut thread_handles: HashMap<NodeId, JoinHandle<()>> = HashMap::new();
 
     //let mut drones: HashMap<NodeId, Box<dyn wg_2024::drone::Drone>> = HashMap::new();
     let mut drones_types: HashMap<NodeId, DroneGroup> = HashMap::new();
@@ -333,7 +332,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
                 })
                 .expect("Can't spawn Drone");
 
-            thread_handles.push(handle);
+            thread_handles.insert(node_id, handle);
         } else {
             eprintln!("Drone not created for index {}", index);
         }
@@ -394,7 +393,7 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
             })
             .expect("Impossibile spawnare il thread Worker");
 
-        thread_handles.push(handle);
+        thread_handles.insert(node_id, handle);
     }
     
     for node in cfg.server.iter() {
@@ -441,8 +440,8 @@ pub fn start<P: AsRef<Path>>(config_path: P) -> Result<(
                 sender_hash
             );
             node.run();
-        }).expect("Impossibile spawnare il thread ChatServer");
-        thread_handles.push(handle);
+        }).expect("Can't spawn thread ChatServer");
+        thread_handles.insert(node_id, handle);
     }
 
     let (button_sender, button_receiver) = unbounded::<ButtonEvent>();
