@@ -798,7 +798,6 @@ mod tests {
     use super::*;
     use wg_2024::config::{Client, Drone, Server};
 
-    //TODO: complete TEST after they approve the PartialEq
     #[test]
     fn parse_test() {
         const FILE_CORRECT: &str = "src/test_data/input1.toml";
@@ -826,8 +825,6 @@ mod tests {
         assert_eq!(config.server.len(), 1);
         assert_eq!(config.server[0].id, 6);
         assert_eq!(config.server[0].connected_drone_ids, vec![2, 3]);
-
-        //TODO: parse empty and invalid file
     }
 
     #[test]

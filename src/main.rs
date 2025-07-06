@@ -10,9 +10,6 @@ use egui::Context;
 use wg_2024::network::NodeId;
 use controller::{ButtonEvent, ControllerUi, GraphAction, MessageType, NodeType};
 
-// TODO: make start more efficient, dont need to clone EVERY CHANNEL, and return USELESS CHANNELS
-// TODO: gentle crash
-
 fn main() -> eframe::Result {
     // console print of debug
     env_logger::init();

@@ -223,7 +223,6 @@ impl Ui {
                                 ui.add_space(5.0); // Spazio tra i bottoni
 
                                 // Reload All button
-                                //TODO: too problematic
                                 // if ui
                                 //     .add_sized(
                                 //         [left_width - 10.0, 25.0],
