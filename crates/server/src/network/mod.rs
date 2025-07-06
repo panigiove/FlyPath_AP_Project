@@ -4,9 +4,12 @@ use std::time::{Duration, SystemTime};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, NodeType};
 
+type TotalPackets = f64;
+type TotalSuccessfulPackets = f64;
+
 #[derive(Clone, Debug)]
 pub struct NetworkManager {
-    pub(crate) topology: HashMap<NodeId, (HashSet<NodeId>, f64, f64)>,
+    pub(crate) topology: HashMap<NodeId, (HashSet<NodeId>, TotalSuccessfulPackets, TotalPackets)>,
     pub(crate) routes: HashMap<NodeId, Vec<NodeId>>,
     pub(crate) client_list: HashSet<NodeId>,
     server_id: NodeId,

@@ -229,20 +229,82 @@ This area displays feedback about what is happening in the network. There are fi
 - **Info**: shown when the controller receives updates about new messages from clients or the server.
 
 ## Server
-The chat server implementation is Giovanni Panighel's individual contribution, and it provides the basic needs for client to communicate from each other.
+The chat server implementation is Giovanni Panighel's individual contribution, and it provides the functionalities that permit clients to communicate with each other.
 
-### Message Handling
-Once a `ChatRequest` message is received, the server will perform various action, based on the content of the message:
- - `ClientList`: will provide the list of the client registred to the chat services and will send back a `ClientList(Vec<NodeId>)`
- - `Register(NodeId)`: will add the client with `NodeId` to the chat services
- - `MessageFrom(from, to , message)`: will send to the client with id `to` the `message` from the client with id `from` via the `MessageFrom(to, message)`
+The main component of the server, `ChatServer`, stores the connections between the controller and the neighbour drones, as well as two suport struct, `NetworkManager` and `ServerMessageManager`, that provide respectively the services for initialize, store and update the topology known to the server, and the functionality for storing and handling incoming and outgoing message fragments.  
 
-If a client attempt to retrieve the `ClientList` or send a `MessageFrom` while it or the client addressee of the `MessageFrom` are not registered to the chat server, the server will responde with a `ErrorWrongClientId()`
+```rust
+    pub struct ChatServer {
+        pub id: NodeId,
+        pub controller_send: Sender<NodeEvent>,
+        pub controller_recv: Receiver<NodeCommand>,
+        pub packet_recv: Receiver<Packet>,
+        pub packet_send: HashMap<NodeId, Sender<Packet>>,
+        pub last_session_id: u64,
+        pub last_flood_id: 0,
+        pub network_manager: NetworkManager,
+        pub server_message_manager: ServerMessageManager,
+        pub server_buffer: HashMap<NodeId, Vec<Packet>>,
+    }
+```
+### Network Manager
 
-all responses will be send encapsulated inside a `ChatResponse` message.
+`NetworkManager` stores inside itself a `HashMap<NodeId, (HashSet<NodeId>, TotalSuccesfulPackets, TotalPackets)>` that represent the topology in the form of a adjacency list, all clients detected in the network and all possible route to them, as well as other parameters used to calculate the contition to initiate a new `FloodRequest`.
 
-### Network Management
-Our chat server has a component called `NetworkManager` that provide the resources and functionality to manage the network topology known to the server and to calculate the optimal path from the server to a known client.
+```rust
+    pub struct NetworkManager {
+        pub(crate) topology: HashMap<NodeId, (HashSet<NodeId>, TotalSuccesfulPackets, TotalPackets)>,
+        pub(crate) routes: HashMap<NodeId, Vec<NodeId>>,
+        pub(crate) client_list: HashSet<NodeId>,
+        server_id: NodeId,
+        pub(crate) n_errors: i64,
+        pub(crate) n_dropped: i64,
+        flood_interval: Duration,
+        start_time: SystemTime,
+    }
+```
+Every node in the topology has two parameters in addition to the `HashSet` of neightbours, `TotalSuccessfulPackets` and `TotalPackes` that represent the total packet successfully (not dropped) passed through the node and the total number of packets passed through the node. They are used to estimate during the calculation of a path which drone has the lower chance of not dropping a packet, attempting the maximum guarantee of delivering it to destination.
 
-Every drone in the topology has two parameters that indicate respectively the amount of packet successfully sent through and the total  
+The optimal path is computed with Dijkstra's Algorithm, using the probabilities of the nodes of sending a packet (`TotalSuccessfulPackets`/`TotalPackes`) as the weight of the edges of the topology transformed using the negative logarithm of themself. This will make them addable and therefore suitable to operate with the algorithm. The shortest path will correspond to the path with the highest probability of sending the packet to destination, and thus the path with the lowest probability of dropping a packet.
+
+### Messages Manager
+
+`ServerMessageManager` stores inside itself all incoming and outgoing fragments, in addition to the list of clients that requested to be registered in order to use the server functionality to communicate with other registered clients.
+
+```rust
+    pub struct ServerMessageManager {
+        incoming_fragments: HashMap<(u64, NodeId), RecvMessageWrapper>,
+        pub(crate) outgoing_packets: HashMap<u64, SentMessageWrapper>,
+        registered_clients: HashSet<NodeId>,
+    }
+```
+Once a `MsgFragment` arrive, it is wrapped inside a `RecvMessageWrapper` and the stored in `incoming_fragments`, and when all fragments are arrived, the message is deserialize in a `ChatRequest`. Based on the content of `ChatRequest` the server will perform various action, based on the content of the message:
+ - `ClientList`: will provide the list of the client registred to the chat services and will send back a `ClientList(Vec<NodeId>)`.
+ - `Register(NodeId)`: will add the client with `NodeId` to the chat services.
+ - `MessageFrom(from, to , message)`: will send to the client with id `to` the `message` from the client with id `from` via the `MessageFrom(to, message)`.
+
+If a client attempt to retrieve the `ClientList` or send a `MessageFrom` while it or the client addressee of the `MessageFrom` are not registered to the chat server, the server will responde with a `ErrorWrongClientId()`.
+
+all responses will be send encapsulated inside a `ChatResponse` message, wrapped in a `SentMessageWrapper` and stored inside `outgoing_packets`.
+
+### Packet Handling
+
+Once a `Packet` arrive, the server will handle it based on `PacketType`:
+
+- `MsgFragment`: `ServerMessageManager` handle it and then all serialized fragment of `ChatResponse` stored in `outgoing_packets` will be sent throght the network.
+
+- `Ack`: the corresponding fragment inside `outgoing_packets` is signed as acked, and `network_manager` will update all weight of the node contained in the `SourceRoutingHeader`.
+
+- `Nack`: the `network_manager` will update all weight of the node contained in the `SourceRoutingHeader` and then proceed to update the number of errors or the number of dropped packet based on the `NackType`. If the nack is a `ErrorInRouting`, the faulty node will be deleted from the topology and all routes generated again. Then the corresponding fragment will be sent again to destination.
+
+- `FloodRequest` and `FloodResponse`: `network_manager` will update the topology of the network and, in the case of `FloodRequest`, generate a `FloodResponse` and send it back in the network.
+
+If an error occur while sending a `Packet`, the number of errors inside `network_manager` is updated and, if it is an `Ack` or a `FloodResponse`, it will be sent to destination via `ControllerShortcut`, otherwise it will be stored in `server_buffer` and tried to be sent again with an updated `SourceRoutingHeader`.
+
+Every time a packet is received, created and sent, it will be notified to the controller. If the server lose the communication channel with the controller, it will panic and end execution.
+
+### Flooding Initialization
+
+Upon spawning, the server will broadcast several `FloodRequest` to the neightbours drones, and it will repeat this procedure every time a max amount of errors or dropped packet are detected, or when a certain interval of time from the last Flooding Initialization has passed.
+
 

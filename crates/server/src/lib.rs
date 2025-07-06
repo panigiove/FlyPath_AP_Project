@@ -22,6 +22,7 @@ pub struct ChatServer {
     pub packet_recv: Receiver<Packet>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub last_session_id: u64,
+    pub last_flood_id: u64,
     pub network_manager: NetworkManager,
     pub server_message_manager: ServerMessageManager,
     pub server_buffer: HashMap<NodeId, Vec<Packet>>,
@@ -42,6 +43,7 @@ impl ChatServer {
             packet_recv,
             packet_send,
             last_session_id: 0,
+            last_flood_id: 0,
             network_manager: NetworkManager::new(id, Duration::new(30, 0)),
             server_message_manager: ServerMessageManager::new(),
             server_buffer: HashMap::new(),
@@ -294,12 +296,14 @@ impl ChatServer {
     }
     //chiarire flood_id come impostarlo
     fn flood_initializer(&mut self) {
-        let request = FloodRequest::initialize(0, self.id, NodeType::Server);
+        let request = FloodRequest::initialize(self.last_flood_id, self.id, NodeType::Server);
+        self.last_flood_id += 1;
         let source_routing = SourceRoutingHeader::initialize(vec![self.id]);
         let packet = Packet::new_flood_request(source_routing, self.last_session_id, request);
         self.last_session_id += 1; //forse non va bene? Non ne ho idea
         for sender in self.packet_send.values() {
             let _ = sender.send(packet.clone());
+            self.send_event(PacketSent(packet.clone()));
         }
     }
     fn add_to_buffer(&mut self, packet: Packet) {
